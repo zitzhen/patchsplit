@@ -6,3 +6,4 @@ license = "MIT"
 description = "Download a GitHub PR patch and split it into per-commit patch files."
 
 [dependencies]
+thiserror = "2"
