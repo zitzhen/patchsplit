@@ -11,3 +11,6 @@ debian/patchsplit-dbgsym/
 /target/
 
 debian/cargo-target/
+
+# Quilt working directory
+.pc/
