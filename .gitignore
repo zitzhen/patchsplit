@@ -6,3 +6,6 @@ debian/files
 debian/*.substvars
 debian/patchsplit/
 debian/patchsplit-dbgsym/
+
+# Rust build artifacts
+/target/
