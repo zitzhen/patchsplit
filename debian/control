@@ -1,0 +1,20 @@
+Source: patchsplit
+Section: devel
+Priority: optional
+Maintainer: Oliver <oliver@liuxiaozhen.dev>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo,
+ rustc
+Standards-Version: 4.7.0
+Homepage: https://github.com/Iamliuxiaozhen/patchsplit
+Rules-Requires-Root: no
+
+Package: patchsplit
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends}
+Description: Split GitHub pull request patches into per-commit patch files
+ patchsplit downloads a GitHub pull request patch and splits it into
+ individual patch files, one for each commit.
