@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-export CARGO_TARGET_DIR = $(CURDIR)/debian/cargo-target
+export CARGO_TARGET_DIR = $(CURDIR)/../patchsplit-build
 
 %:
 	dh $@
@@ -9,5 +9,8 @@ override_dh_auto_build:
 	cargo build --release
 
 override_dh_auto_install:
-	install -Dm755 debian/cargo-target/release/patchsplit \
+	install -Dm755 ../patchsplit-build/release/patchsplit \
 		debian/patchsplit/usr/bin/patchsplit
+
+override_dh_installman:
+	dh_installman debian/patchsplit.1

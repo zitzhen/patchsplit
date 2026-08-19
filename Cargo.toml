@@ -7,3 +7,6 @@ description = "Download a GitHub PR patch and split it into per-commit patch fil
 
 [dependencies]
 thiserror = "2"
+
+[profile.release]
+debug = 2
