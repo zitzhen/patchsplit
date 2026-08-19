@@ -9,3 +9,5 @@ debian/patchsplit-dbgsym/
 
 # Rust build artifacts
 /target/
+
+debian/cargo-target/

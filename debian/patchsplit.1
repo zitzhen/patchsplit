@@ -1,0 +1,68 @@
+.TH PATCHSPLIT 1 "August 2026" "patchsplit 1.0.2" "User Commands"
+.SH NAME
+patchsplit \- download a GitHub pull request patch and split it by commit
+.SH SYNOPSIS
+.B patchsplit
+.RI < owner/repo > " <pr-number>"
+.RS
+[\c
+.B \-\-out
+.IR dir ]
+[\c
+.B \-\-force ]
+.RE
+.br
+.B patchsplit
+.RI < owner > " <repo> <pr-number>"
+.RS
+[\c
+.B \-\-out
+.IR dir ]
+[\c
+.B \-\-force ]
+.RE
+.SH DESCRIPTION
+.B patchsplit
+downloads the patch for a GitHub pull request and splits it into
+individual patch files, one for each commit.
+.PP
+The resulting patch files are written to the
+.B patches
+directory by default.
+.SH OPTIONS
+.TP
+.BR \-o ", " \-\-out " " \fIdir\fR
+Write split patch files to
+.IR dir .
+The default is
+.BR patches .
+.TP
+.BR \-f ", " \-\-force
+Overwrite existing patch files.
+By default, existing files are not overwritten.
+.TP
+.BR \-h ", " \-\-help
+Display the help message and exit.
+.TP
+.BR \-V ", " \-\-version
+Display the version and exit.
+.SH EXAMPLES
+.TP
+.B patchsplit rust-lang/rust 12345
+Download and split pull request 12345 from
+.BR rust-lang/rust .
+.TP
+.B patchsplit openai codex 42 \-o pr-42-patches
+Download pull request 42 from
+.BR openai/codex
+and write the resulting patches to
+.BR pr-42-patches .
+.SH REQUIREMENTS
+.B patchsplit
+uses
+.B curl
+to download pull request patches from GitHub.
+.SH SEE ALSO
+.BR curl (1)
+.SH AUTHORS
+Oliver <oliver@liuxiaozhen.dev>
