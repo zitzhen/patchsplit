@@ -79,8 +79,8 @@ Pushing a `v*` tag triggers GitHub Actions to build release packages for three
 platforms and automatically create a GitHub draft release:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.x.x
+git push origin v1.x.x
 ```
 
 You can also run the `Release` workflow manually from GitHub Actions. Select the

@@ -75,8 +75,8 @@ target/release/patchsplit
 GitHub draft release：
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.x.x
+git push origin v1.x.x
 ```
 
 也可以在 GitHub Actions 的 `Release` workflow 里手动运行，选择需要打包的分支或
