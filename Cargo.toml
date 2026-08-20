@@ -4,6 +4,9 @@ version = "1.0.2"
 edition = "2021"
 license = "MIT"
 description = "Download a GitHub PR patch and split it into per-commit patch files."
+repository = "https://github.com/zitzhen/patchsplit"
+homepage = "https://github.com/zitzhen/patchsplit"
+readme = "README.md"
 
 [dependencies]
 thiserror = "2"
