@@ -98,7 +98,7 @@ the GitHub Releases page.
 
 ### Linux
 
-> [!INFO]
+> [!NOTE]
 > For Arch Linux, use the [`patchsplit-bin`](https://aur.archlinux.org/packages/patchsplit-bin) AUR package
 > maintained by [lingbopro](https://github.com/lingbopro).
 >

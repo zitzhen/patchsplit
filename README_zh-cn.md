@@ -91,7 +91,7 @@ release 默认是草稿，需要在 GitHub Releases 页面检查后手动发布�
 
 ## 安装
 
-> [!INFO]
+> [!NOTE]
 > 对于 Arch Linux，使用由 [lingbopro](https://github.com/lingbopro) 维护的
 > [`patchsplit-bin`](https://aur.archlinux.org/packages/patchsplit-bin) AUR 包。
 >
