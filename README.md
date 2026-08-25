@@ -98,6 +98,13 @@ the GitHub Releases page.
 
 ### Linux
 
+> [!INFO]
+> For Arch Linux, use the [`patchsplit-bin`](https://aur.archlinux.org/packages/patchsplit-bin) AUR package
+> maintained by [lingbopro](https://github.com/lingbopro).
+>
+> - Using `paru`: `paru -S patchsplit-bin`
+> - Using `yay`: `yay -S patchsplit-bin`
+
 ```sh
 tar -xzf patchsplit-linux-x86_64.tar.gz
 chmod +x patchsplit

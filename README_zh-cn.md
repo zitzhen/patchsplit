@@ -91,6 +91,13 @@ release 默认是草稿，需要在 GitHub Releases 页面检查后手动发布�
 
 ## 安装
 
+> [!INFO]
+> 对于 Arch Linux，使用由 [lingbopro](https://github.com/lingbopro) 维护的
+> [`patchsplit-bin`](https://aur.archlinux.org/packages/patchsplit-bin) AUR 包。
+>
+> - 使用 `paru`: `paru -S patchsplit-bin`
+> - 使用 `yay`: `yay -S patchsplit-bin`
+
 ### Linux
 
 ```sh
