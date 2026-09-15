@@ -2,7 +2,8 @@
 
 Language: English | [Simplified Chinese](README_zh-cn.md)
 
-Download GitHub pull requests as patches, one file per commit or one combined diff.
+Download GitHub pull requests or individual commits as patches, one file per
+commit or one combined diff.
 
 `patchsplit` is a command-line tool written in Rust. It fetches patches directly
 from GitHub without cloning the repository, making it useful for reviewing,
@@ -10,6 +11,8 @@ sharing, and applying changes locally.
 
 - **Per-commit patches:** Keep the original patch content, commit messages, and
   authorship, with numbered filenames in commit order.
+- **Single commit:** Use `--commit <hash>` to download one commit's `.patch`
+  with either a short or full hash.
 - **Combined diff:** Use `--squash` to export the PR's net changes as a single patch.
 - **Predictable output:** Choose an output directory; existing files are only
   overwritten when you pass `--force`.
@@ -137,6 +140,8 @@ Ensure Cargo's binary directory (usually `~/.cargo/bin`) is in your `PATH`.
 ```sh
 patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]
 patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]
+patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]
+patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]
 ```
 
 ### Split a pull request by commit
@@ -190,10 +195,26 @@ git apply /path/to/pr-42-patches/pr-42.patch
 | --- | --- | --- | --- |
 | Default | One numbered patch per commit | Preserved | `git am` |
 | `--squash` | One `pr-<pr-number>.patch` | Not included | `git apply` |
+| `--commit <hash>` | One `<hash>.patch` | Preserved | `git am` |
 
 The combined output is a raw diff, not a `git am` mailbox. An empty net diff
 is reported as an error and no file is written. Binary changes are limited to
 the data GitHub includes in its diff; binary file contents may not be included.
+
+### Download a single commit
+
+Pass `--commit <hash>` (or `-commit <hash>`) with a short or full commit hash
+instead of a pull request number:
+
+```sh
+patchsplit zitzhen patchsplit -commit b430113
+patchsplit zitzhen/patchsplit --commit b4301133226e5c3a464cff9649de0b321c0b0a2e
+```
+
+This fetches `https://github.com/<owner>/<repo>/commit/<hash>.patch` and writes
+the commit's mail-formatted patch verbatim to `<hash>.patch` in the output
+directory, for example `patches/b430113.patch`. Apply it with `git am` just
+like a per-commit PR patch. `--commit` cannot be combined with `--squash`.
 
 ### Options
 
@@ -202,6 +223,7 @@ the data GitHub includes in its diff; binary file contents may not be included.
 | `-o, --out <dir>` | Output directory (default: `patches/`). |
 | `-f, --force` | Overwrite existing patch files. |
 | `-s, --squash` | Write the PR's net diff as one patch. |
+| `--commit <hash>` | Download one commit's `.patch`; accepts a short or full hash. |
 | `-h, --help` | Show help. |
 | `-V, --version` | Show version. |
 

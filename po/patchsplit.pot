@@ -50,6 +50,18 @@ msgid "pull request number must be a positive integer, got {value}"
 msgstr ""
 
 #: src/main.rs
+msgid "expected a GitHub repository with --commit <hash>"
+msgstr ""
+
+#: src/main.rs
+msgid "commit hash must consist of 4 to 40 hexadecimal characters, got {value}"
+msgstr ""
+
+#: src/main.rs
+msgid "--commit cannot be combined with --squash"
+msgstr ""
+
+#: src/main.rs
 msgid "missing value for {option}"
 msgstr ""
 
@@ -119,17 +131,21 @@ msgid ""
 "Usage:\n"
 "  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n"
 "  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n"
+"  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n"
+"  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n"
 "\n"
 "Options:\n"
 "  -o, --out <dir>   Output directory for patch files [default: "
 "patches]\n"
 "  -f, --force       Overwrite existing patch files\n"
 "  -s, --squash      Write the PR's net diff as one patch\n"
+"      --commit <hash> Download one commit's .patch (short or full hash)\n"
 "  -h, --help        Show this help\n"
 "  -V, --version     Show version\n"
 "\n"
 "Examples:\n"
 "  patchsplit rust-lang/rust 12345\n"
 "  patchsplit openai codex 42 -o pr-42-patches\n"
-"  patchsplit openai/codex 42 --squash"
+"  patchsplit openai/codex 42 --squash\n"
+"  patchsplit zitzhen patchsplit -commit b430113"
 msgstr ""
