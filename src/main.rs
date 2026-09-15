@@ -75,10 +75,16 @@ fn run() -> Result<(), AppError> {
 struct Config {
     owner: String,
     repo: String,
-    pull_request: u64,
+    target: Target,
     output_dir: PathBuf,
     force: bool,
     squash: bool,
+}
+
+#[derive(Debug)]
+enum Target {
+    PullRequest(u64),
+    Commit(String),
 }
 
 impl Config {
@@ -89,6 +95,7 @@ impl Config {
         let mut output_dir = PathBuf::from("patches");
         let mut force = false;
         let mut squash = false;
+        let mut commit = None;
         let mut positionals = Vec::new();
         let mut args = args.into_iter();
 
@@ -106,6 +113,18 @@ impl Config {
                 value if value.starts_with("--out=") => {
                     output_dir = PathBuf::from(&value["--out=".len()..]);
                 }
+                "-commit" | "--commit" => {
+                    let value = args
+                        .next()
+                        .ok_or(AppError::MissingOptionValue("--commit".to_string()))?;
+                    commit = Some(value);
+                }
+                value if value.starts_with("--commit=") => {
+                    commit = Some(value["--commit=".len()..].to_string());
+                }
+                value if value.starts_with("-commit=") => {
+                    commit = Some(value["-commit=".len()..].to_string());
+                }
                 value if value.starts_with('-') => {
                     return Err(AppError::UnknownOption(value.to_string()));
                 }
@@ -113,27 +132,49 @@ impl Config {
             }
         }
 
-        let (owner, repo, pull_request) = match positionals.as_slice() {
-            [repo_spec, pull_request] => {
-                let (owner, repo) = parse_repo_spec(repo_spec)?;
-                (owner, repo, parse_pull_request(pull_request)?)
+        if commit.is_some() && squash {
+            return Err(AppError::CommitWithSquash);
+        }
+
+        let (owner, repo, target) = match commit {
+            Some(hash) => {
+                let (owner, repo) = match positionals.as_slice() {
+                    [repo_spec] => parse_repo_spec(repo_spec)?,
+                    [owner, repo] => {
+                        validate_repo_segment("owner", owner)?;
+                        validate_repo_segment("repo", repo)?;
+                        (owner.clone(), repo.clone())
+                    }
+                    _ => return Err(AppError::InvalidCommitArguments),
+                };
+                validate_commit_hash(&hash)?;
+                (owner, repo, Target::Commit(hash))
             }
-            [owner, repo, pull_request] => {
-                validate_repo_segment("owner", owner)?;
-                validate_repo_segment("repo", repo)?;
-                (
-                    owner.clone(),
-                    repo.clone(),
-                    parse_pull_request(pull_request)?,
-                )
+            None => {
+                let (owner, repo, pull_request) = match positionals.as_slice() {
+                    [repo_spec, pull_request] => {
+                        let (owner, repo) = parse_repo_spec(repo_spec)?;
+                        (owner, repo, parse_pull_request(pull_request)?)
+                    }
+                    [owner, repo, pull_request] => {
+                        validate_repo_segment("owner", owner)?;
+                        validate_repo_segment("repo", repo)?;
+                        (
+                            owner.clone(),
+                            repo.clone(),
+                            parse_pull_request(pull_request)?,
+                        )
+                    }
+                    _ => return Err(AppError::InvalidArguments),
+                };
+                (owner, repo, Target::PullRequest(pull_request))
             }
-            _ => return Err(AppError::InvalidArguments),
         };
 
         Ok(Self {
             owner,
             repo,
-            pull_request,
+            target,
             output_dir,
             force,
             squash,
@@ -141,28 +182,53 @@ impl Config {
     }
 
     fn patch_url(&self) -> String {
-        // GitHub's PR diff represents the net change; .patch contains each commit.
-        let extension = if self.squash { "diff" } else { "patch" };
-        format!(
-            "https://github.com/{}/{}/pull/{}.{extension}",
-            self.owner, self.repo, self.pull_request
-        )
+        match &self.target {
+            // GitHub's PR diff represents the net change; .patch contains each commit.
+            Target::PullRequest(pull_request) => {
+                let extension = if self.squash { "diff" } else { "patch" };
+                format!(
+                    "https://github.com/{}/{}/pull/{}.{extension}",
+                    self.owner, self.repo, pull_request
+                )
+            }
+            Target::Commit(hash) => format!(
+                "https://github.com/{}/{}/commit/{}.patch",
+                self.owner, self.repo, hash
+            ),
+        }
     }
 
     fn patch_parts(&self, patch: &str) -> Vec<PatchPart> {
-        if !self.squash {
-            return split_patch_by_commit(patch);
+        match &self.target {
+            Target::Commit(hash) => {
+                if patch.trim().is_empty() {
+                    return Vec::new();
+                }
+                // A commit .patch is a single mail-formatted patch; keep it verbatim.
+                vec![PatchPart {
+                    index: 1,
+                    commit: None,
+                    subject: format!("commit {hash}"),
+                    filename: format!("{hash}.patch"),
+                    content: patch.to_string(),
+                }]
+            }
+            Target::PullRequest(pull_request) => {
+                if !self.squash {
+                    return split_patch_by_commit(patch);
+                }
+                if patch.trim().is_empty() {
+                    return Vec::new();
+                }
+                vec![PatchPart {
+                    index: 1,
+                    commit: None,
+                    subject: format!("PR #{pull_request}"),
+                    filename: format!("pr-{pull_request}.patch"),
+                    content: patch.to_string(),
+                }]
+            }
         }
-        if patch.trim().is_empty() {
-            return Vec::new();
-        }
-        vec![PatchPart {
-            index: 1,
-            commit: None,
-            subject: format!("PR #{}", self.pull_request),
-            filename: format!("pr-{}.patch", self.pull_request),
-            content: patch.to_string(),
-        }]
     }
 }
 
@@ -204,6 +270,18 @@ fn parse_pull_request(value: &str) -> Result<u64, AppError> {
         Err(AppError::InvalidPullRequest(value.to_string()))
     } else {
         Ok(pull_request)
+    }
+}
+
+fn validate_commit_hash(value: &str) -> Result<(), AppError> {
+    // Git abbreviations are at least 4 hex characters; full SHAs are 40.
+    let valid =
+        (4..=40).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit());
+
+    if valid {
+        Ok(())
+    } else {
+        Err(AppError::InvalidCommitHash(value.to_string()))
     }
 }
 
@@ -283,6 +361,12 @@ enum AppError {
     InvalidRepoSegment { kind: &'static str, value: String },
     #[error("pull request number must be a positive integer, got {0:?}")]
     InvalidPullRequest(String),
+    #[error("expected a GitHub repository with --commit <hash>")]
+    InvalidCommitArguments,
+    #[error("commit hash must consist of 4 to 40 hexadecimal characters, got {0:?}")]
+    InvalidCommitHash(String),
+    #[error("--commit cannot be combined with --squash")]
+    CommitWithSquash,
     #[error("missing value for {0}")]
     MissingOptionValue(String),
     #[error("unknown option {0}")]
@@ -319,6 +403,9 @@ impl AppError {
             | Self::InvalidRepoSpec(_)
             | Self::InvalidRepoSegment { .. }
             | Self::InvalidPullRequest(_)
+            | Self::InvalidCommitArguments
+            | Self::InvalidCommitHash(_)
+            | Self::CommitWithSquash
             | Self::MissingOptionValue(_)
             | Self::UnknownOption(_) => 2,
             _ => 1,
@@ -343,6 +430,14 @@ impl AppError {
                 "pull request number must be a positive integer, got {value}",
                 &[("value", quoted(value))],
             ),
+            Self::InvalidCommitArguments => {
+                tr("expected a GitHub repository with --commit <hash>")
+            }
+            Self::InvalidCommitHash(value) => tr_args(
+                "commit hash must consist of 4 to 40 hexadecimal characters, got {value}",
+                &[("value", quoted(value))],
+            ),
+            Self::CommitWithSquash => tr("--commit cannot be combined with --squash"),
             Self::MissingOptionValue(option) => {
                 tr_args("missing value for {option}", &[("option", option.clone())])
             }
@@ -419,7 +514,7 @@ fn repo_segment_label(kind: &str) -> String {
 }
 
 fn usage() -> String {
-    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the PR's net diff as one patch\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash")
+    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the PR's net diff as one patch\n      --commit <hash> Download one commit's .patch (short or full hash)\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113")
 }
 
 #[cfg(test)]
@@ -459,5 +554,65 @@ mod tests {
             assert_eq!(parts[0].content, diff);
             assert!(config.patch_parts(" \n\t").is_empty());
         }
+    }
+
+    #[test]
+    fn commit_mode_downloads_a_single_commit_patch() {
+        const FULL_HASH: &str = "b4301133226e5c3a464cff9649de0b321c0b0a2e";
+        let full_double_dash = format!("--commit={FULL_HASH}");
+        let full_single_dash = format!("-commit={FULL_HASH}");
+        let cases: Vec<(Vec<&str>, &str)> = vec![
+            (vec!["zitzhen/patchsplit", "-commit", "b430113"], "b430113"),
+            (
+                vec!["zitzhen", "patchsplit", "--commit", "b430113"],
+                "b430113",
+            ),
+            (vec!["zitzhen/patchsplit", &full_double_dash], FULL_HASH),
+            (vec!["zitzhen/patchsplit", &full_single_dash], FULL_HASH),
+        ];
+        let patch = format!(
+            "From {FULL_HASH} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] One\n\ndiff --git a/a b/a\n"
+        );
+
+        for (args, hash) in cases {
+            let config = config(&args);
+            assert_eq!(
+                config.patch_url(),
+                format!("https://github.com/zitzhen/patchsplit/commit/{hash}.patch")
+            );
+            let parts = config.patch_parts(&patch);
+            assert_eq!(parts.len(), 1);
+            assert_eq!(parts[0].filename, format!("{hash}.patch"));
+            assert_eq!(parts[0].content, patch);
+            assert!(config.patch_parts("  \n").is_empty());
+        }
+    }
+
+    #[test]
+    fn commit_mode_validates_hash_and_arguments() {
+        fn parse_err(args: &[&str]) -> String {
+            let error = Config::parse(args.iter().map(|arg| arg.to_string())).unwrap_err();
+            format!("{error:?}")
+        }
+
+        let non_hex = "g".repeat(7);
+        for args in [
+            vec!["owner/repo", "--commit", "xyz"],
+            vec!["owner/repo", "--commit", "abc"],
+            vec!["owner/repo", "--commit", non_hex.as_str()],
+        ] {
+            assert!(parse_err(&args).contains("InvalidCommitHash"));
+        }
+
+        assert!(parse_err(&["owner/repo", "--commit"]).contains("MissingOptionValue"));
+        assert!(
+            parse_err(&["owner", "repo", "42", "--commit", "b430113"])
+                .contains("InvalidCommitArguments")
+        );
+        assert!(parse_err(&["--commit", "b430113"]).contains("InvalidCommitArguments"));
+        assert!(
+            parse_err(&["owner/repo", "42", "--commit", "b430113", "--squash"])
+                .contains("CommitWithSquash")
+        );
     }
 }

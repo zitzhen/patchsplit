@@ -2,14 +2,16 @@
 
 语言：[English](README.md) | 简体中文
 
-`patchsplit` 是一个 Rust CLI，用来从 GitHub 下载 Pull Request 的 `.patch`
-文件，并按 commit 拆分成多个独立 patch 文件。
+`patchsplit` 是一个 Rust CLI，用来从 GitHub 下载 Pull Request 或单个 commit 的
+`.patch` 文件，PR 补丁可按 commit 拆分成多个独立 patch 文件。
 
 ## 用法
 
 ```sh
 patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]
 patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]
+patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]
+patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]
 ```
 
 示例：
@@ -43,11 +45,27 @@ git apply pr-42-patches/pr-42.patch
 作者信息，不能作为 `git am` 邮件补丁使用。净变化为空时会报补丁为空，不生成文件。
 二进制变更受 GitHub diff 返回内容限制，可能不包含二进制文件内容。
 
+### 下载单个 commit
+
+不传 PR 编号，改用 `--commit <hash>`（也可写作 `-commit <hash>`）传入短哈希或
+完整哈希：
+
+```sh
+patchsplit zitzhen patchsplit -commit b430113
+patchsplit zitzhen/patchsplit --commit b4301133226e5c3a464cff9649de0b321c0b0a2e
+```
+
+对应下载 `https://github.com/<owner>/<repo>/commit/<hash>.patch`，并把该 commit
+的邮件格式补丁原样写入输出目录下的 `<hash>.patch`，例如
+`patches/b430113.patch`。它和按 commit 拆分的 PR 补丁一样可用 `git am` 应用。
+`--commit` 不能与 `--squash` 同时使用。
+
 ## 参数
 
 - `-o, --out <dir>`：指定 patch 文件的输出目录。
 - `-f, --force`：允许覆盖已存在的 patch 文件。
 - `-s, --squash`：将 PR 的最终净变化输出为一个补丁。
+- `--commit <hash>`：下载单个 commit 的 `.patch`，接受短哈希或完整哈希。
 - `-h, --help`：显示帮助。
 - `-V, --version`：显示版本。
 

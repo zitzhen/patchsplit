@@ -1,6 +1,6 @@
 .TH PATCHSPLIT 1 "August 2026" "patchsplit 1.0.2" "User Commands"
 .SH NAME
-patchsplit \- download a GitHub pull request patch and split it by commit
+patchsplit \- download a GitHub pull request patch, split it by commit, or fetch a single commit patch
 .SH SYNOPSIS
 .B patchsplit
 .RI < owner/repo > " <pr-number>"
@@ -14,6 +14,26 @@ patchsplit \- download a GitHub pull request patch and split it by commit
 .br
 .B patchsplit
 .RI < owner > " <repo> <pr-number>"
+.RS
+[\c
+.B \-\-out
+.IR dir ]
+[\c
+.B \-\-force ]
+.RE
+.br
+.B patchsplit
+.RI < owner/repo > " \-\-commit <hash>"
+.RS
+[\c
+.B \-\-out
+.IR dir ]
+[\c
+.B \-\-force ]
+.RE
+.br
+.B patchsplit
+.RI < owner > " <repo> \-\-commit <hash>"
 .RS
 [\c
 .B \-\-out
@@ -35,6 +55,16 @@ Repeated edits are combined and reverted changes disappear.
 The output is a raw diff for git apply, without commit metadata.
 An empty net diff is an error. Binary contents may be omitted by GitHub.
 .PP
+With
+.BR \-\-commit " " \fIhash\fR ,
+download the patch of a single commit identified by a short or full hash and
+write it verbatim to
+.BR <hash>.patch .
+The result is a mail-formatted patch for git am.
+.B \-\-commit
+cannot be combined with
+.BR \-\-squash .
+.PP
 The resulting patch files are written to the
 .B patches
 directory by default.
@@ -42,6 +72,15 @@ directory by default.
 .TP
 .BR \-s ", " \-\-squash
 Write the PR's net diff as one patch instead of splitting by commit.
+.TP
+.BR \-\-commit " " \fIhash\fR
+Download the .patch of a single commit instead of a pull request.
+.I hash
+may be a short or full commit hash.
+The output file is named
+.BR <hash>.patch .
+Cannot be combined with
+.BR \-\-squash .
 .TP
 .BR \-o ", " \-\-out " " \fIdir\fR
 Write patch files to
@@ -69,11 +108,17 @@ Download pull request 42 from
 .BR openai/codex
 and write the resulting patches to
 .BR pr-42-patches .
+.TP
+.B patchsplit zitzhen patchsplit \-commit b430113
+Download the patch for commit b430113 from
+.BR zitzhen/patchsplit
+and write it to
+.BR b430113.patch .
 .SH REQUIREMENTS
 .B patchsplit
 uses
 .B curl
-to download pull request patches from GitHub.
+to download pull request and commit patches from GitHub.
 .SH SEE ALSO
 .BR curl (1)
 .SH AUTHORS
