@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: patchsplit 0.1.0\n"
+"Project-Id-Version: patchsplit 1.2.0\n"
 "Report-Msgid-Bugs-To: https://github.com/zitzhen/patchsplit/issues\n"
-"POT-Creation-Date: 2026-08-11 15:04+0800\n"
+"POT-Creation-Date: 2026-09-19 14:57+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -34,127 +34,16 @@ msgid "wrote {count} patch file(s) to {directory}"
 msgstr ""
 
 #: src/main.rs
-msgid "expected a GitHub repository and pull request number"
-msgstr ""
-
-#: src/main.rs
-msgid "repository must use owner/repo form, got {value}"
-msgstr ""
-
-#: src/main.rs
-msgid "invalid GitHub repository {kind}: {value}"
-msgstr ""
-
-#: src/main.rs
-msgid "pull request number must be a positive integer, got {value}"
-msgstr ""
-
-#: src/main.rs
-msgid "expected a GitHub repository with --commit <hash>"
-msgstr ""
-
-#: src/main.rs
-msgid "expected a GitLab project and merge request number"
-msgstr ""
-
-#: src/main.rs
-msgid "expected a GitLab project with --commit <hash>"
-msgstr ""
-
-#: src/main.rs
-msgid ""
-"GitLab project must use namespace/project form (subgroups allowed), got "
-"{value}"
-msgstr ""
-
-#: src/main.rs
-msgid "merge request number must be a positive integer, got {value}"
-msgstr ""
-
-#: src/main.rs
-msgid "commit hash must consist of 4 to 40 hexadecimal characters, got {value}"
-msgstr ""
-
-#: src/main.rs
-msgid "--commit cannot be combined with --squash"
-msgstr ""
-
-#: src/main.rs
-msgid "missing value for {option}"
-msgstr ""
-
-#: src/main.rs
-msgid "unknown option {option}"
-msgstr ""
-
-#: src/main.rs
-msgid "curl was not found in PATH"
-msgstr ""
-
-#: src/main.rs
-msgid "failed to run curl: {source}"
-msgstr ""
-
-#: src/main.rs
-msgid "download failed with status {status}: {message}"
-msgstr ""
-
-#: src/main.rs
-msgid "download failed with status {status}"
-msgstr ""
-
-#: src/main.rs
-msgid "download failed: {message}"
-msgstr ""
-
-#: src/main.rs
-msgid "download failed"
-msgstr ""
-
-#: src/main.rs
-msgid "downloaded patch is not valid UTF-8: {source}"
-msgstr ""
-
-#: src/main.rs
-msgid "downloaded patch is empty"
-msgstr ""
-
-#: src/main.rs
-msgid "downloaded content is not a Git diff"
-msgstr ""
-
-#: src/main.rs
-msgid "failed to create output directory {path}: {source}"
-msgstr ""
-
-#: src/main.rs
-msgid ""
-"refusing to overwrite existing patch file {path}; pass --force to replace it"
-msgstr ""
-
-#: src/main.rs
-msgid "failed to write patch file {path}: {source}"
-msgstr ""
-
-#: src/main.rs
-msgid "owner"
-msgstr ""
-
-#: src/main.rs
-msgid "repo"
-msgstr ""
-
-#: src/main.rs
 msgid ""
 "Usage:\n"
 "  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n"
 "  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n"
 "  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n"
 "  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n"
-"  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] "
-"[--force] [--squash]\n"
-"  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] "
-"[--force]\n"
+"  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--"
+"force] [--squash]\n"
+"  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--"
+"force]\n"
 "\n"
 "Options:\n"
 "  -o, --out <dir>   Output directory for patch files [default: patches]\n"
@@ -172,4 +61,115 @@ msgid ""
 "  patchsplit openai/codex 42 --squash\n"
 "  patchsplit zitzhen patchsplit -commit b430113\n"
 "  patchsplit --gitlab zitzhen/patchsplit 1"
+msgstr ""
+
+#: src/error.rs
+msgid "expected a GitHub repository and pull request number"
+msgstr ""
+
+#: src/error.rs
+msgid "repository must use owner/repo form, got {value}"
+msgstr ""
+
+#: src/error.rs
+msgid "invalid GitHub repository {kind}: {value}"
+msgstr ""
+
+#: src/error.rs
+msgid "pull request number must be a positive integer, got {value}"
+msgstr ""
+
+#: src/error.rs
+msgid "expected a GitHub repository with --commit <hash>"
+msgstr ""
+
+#: src/error.rs
+msgid "expected a GitLab project and merge request number"
+msgstr ""
+
+#: src/error.rs
+msgid "expected a GitLab project with --commit <hash>"
+msgstr ""
+
+#: src/error.rs
+msgid ""
+"GitLab project must use namespace/project form (subgroups allowed), got "
+"{value}"
+msgstr ""
+
+#: src/error.rs
+msgid "merge request number must be a positive integer, got {value}"
+msgstr ""
+
+#: src/error.rs
+msgid "commit hash must consist of 4 to 40 hexadecimal characters, got {value}"
+msgstr ""
+
+#: src/error.rs
+msgid "--commit cannot be combined with --squash"
+msgstr ""
+
+#: src/error.rs
+msgid "missing value for {option}"
+msgstr ""
+
+#: src/error.rs
+msgid "unknown option {option}"
+msgstr ""
+
+#: src/error.rs
+msgid "curl was not found in PATH"
+msgstr ""
+
+#: src/error.rs
+msgid "failed to run curl: {source}"
+msgstr ""
+
+#: src/error.rs
+msgid "download failed with status {status}: {message}"
+msgstr ""
+
+#: src/error.rs
+msgid "download failed with status {status}"
+msgstr ""
+
+#: src/error.rs
+msgid "download failed: {message}"
+msgstr ""
+
+#: src/error.rs
+msgid "download failed"
+msgstr ""
+
+#: src/error.rs
+msgid "downloaded patch is not valid UTF-8: {source}"
+msgstr ""
+
+#: src/error.rs
+msgid "downloaded patch is empty"
+msgstr ""
+
+#: src/error.rs
+msgid "downloaded content is not a Git diff"
+msgstr ""
+
+#: src/error.rs
+msgid "failed to create output directory {path}: {source}"
+msgstr ""
+
+#: src/error.rs
+msgid ""
+"refusing to overwrite existing patch file {path}; pass --force to replace it"
+msgstr ""
+
+#: src/error.rs
+msgid "failed to write patch file {path}: {source}"
+msgstr ""
+
+#: src/error.rs
+msgid "owner"
+msgstr ""
+
+#: src/error.rs
+msgid "repo"
 msgstr ""

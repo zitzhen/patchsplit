@@ -2,12 +2,18 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
+mod config;
+mod download;
+mod error;
+mod host;
 mod i18n;
 
+use config::Config;
+use download::{CurlDownloader, Downloader};
+use error::AppError;
 use i18n::{tr, tr_args};
-use patchsplit::{split_patch_by_commit, PatchPart};
+use patchsplit::PatchPart;
 
 fn main() {
     i18n::init();
@@ -41,8 +47,9 @@ fn main() {
 fn run() -> Result<(), AppError> {
     let config = Config::parse(env::args().skip(1))?;
     let url = config.patch_url();
-    let patch = download_patch(&url)?;
-    if config.squash && !patch.trim().is_empty() && !patch.starts_with("diff --git ") {
+    let downloader = CurlDownloader;
+    let patch = downloader.fetch(&url)?;
+    if config.options.squash && !patch.trim().is_empty() && !patch.starts_with("diff --git ") {
         return Err(AppError::InvalidDiff);
     }
     let parts = config.patch_parts(&patch);
@@ -51,7 +58,7 @@ fn run() -> Result<(), AppError> {
         return Err(AppError::EmptyPatch);
     }
 
-    let written = write_parts(&parts, &config.output_dir, config.force)?;
+    let written = write_parts(&parts, &config.options.output_dir, config.options.force)?;
 
     println!("{}", tr_args("downloaded {url}", &[("url", url)]));
     println!(
@@ -60,7 +67,7 @@ fn run() -> Result<(), AppError> {
             "wrote {count} patch file(s) to {directory}",
             &[
                 ("count", written.len().to_string()),
-                ("directory", config.output_dir.display().to_string()),
+                ("directory", config.options.output_dir.display().to_string()),
             ]
         )
     );
@@ -69,338 +76,6 @@ fn run() -> Result<(), AppError> {
     }
 
     Ok(())
-}
-
-#[derive(Debug)]
-struct Config {
-    /// `owner/repo` on GitHub or `namespace/project` (subgroups allowed) on GitLab.
-    project: String,
-    platform: Platform,
-    target: Target,
-    output_dir: PathBuf,
-    force: bool,
-    squash: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Platform {
-    GitHub,
-    GitLab,
-}
-
-#[derive(Debug)]
-enum Target {
-    MergeRequest(u64),
-    Commit(String),
-}
-
-impl Config {
-    fn parse<I>(args: I) -> Result<Self, AppError>
-    where
-        I: IntoIterator<Item = String>,
-    {
-        let mut output_dir = PathBuf::from("patches");
-        let mut force = false;
-        let mut squash = false;
-        let mut gitlab = false;
-        let mut commit = None;
-        let mut positionals = Vec::new();
-        let mut args = args.into_iter();
-
-        while let Some(arg) = args.next() {
-            match arg.as_str() {
-                "-h" | "--help" => return Err(AppError::Help),
-                "-V" | "--version" => return Err(AppError::Version),
-                "-f" | "--force" => force = true,
-                "-s" | "--squash" => squash = true,
-                "--gitlab" => gitlab = true,
-                "-o" | "--out" => {
-                    let option = arg.as_str().to_string();
-                    let value = args.next().ok_or(AppError::MissingOptionValue(option))?;
-                    output_dir = PathBuf::from(value);
-                }
-                value if value.starts_with("--out=") => {
-                    output_dir = PathBuf::from(&value["--out=".len()..]);
-                }
-                "-commit" | "--commit" => {
-                    let value = args
-                        .next()
-                        .ok_or(AppError::MissingOptionValue("--commit".to_string()))?;
-                    commit = Some(value);
-                }
-                value if value.starts_with("--commit=") => {
-                    commit = Some(value["--commit=".len()..].to_string());
-                }
-                value if value.starts_with("-commit=") => {
-                    commit = Some(value["-commit=".len()..].to_string());
-                }
-                value if value.starts_with('-') => {
-                    return Err(AppError::UnknownOption(value.to_string()));
-                }
-                value => positionals.push(value.to_string()),
-            }
-        }
-
-        if commit.is_some() && squash {
-            return Err(AppError::CommitWithSquash);
-        }
-
-        let platform = if gitlab {
-            Platform::GitLab
-        } else {
-            Platform::GitHub
-        };
-
-        let (project, target) = match platform {
-            Platform::GitHub => match commit {
-                Some(hash) => {
-                    let (owner, repo) = match positionals.as_slice() {
-                        [repo_spec] => parse_repo_spec(repo_spec)?,
-                        [owner, repo] => {
-                            validate_repo_segment("owner", owner)?;
-                            validate_repo_segment("repo", repo)?;
-                            (owner.clone(), repo.clone())
-                        }
-                        _ => return Err(AppError::InvalidCommitArguments),
-                    };
-                    validate_commit_hash(&hash)?;
-                    (format!("{owner}/{repo}"), Target::Commit(hash))
-                }
-                None => {
-                    let (owner, repo, pull_request) = match positionals.as_slice() {
-                        [repo_spec, pull_request] => {
-                            let (owner, repo) = parse_repo_spec(repo_spec)?;
-                            (owner, repo, parse_pull_request(pull_request)?)
-                        }
-                        [owner, repo, pull_request] => {
-                            validate_repo_segment("owner", owner)?;
-                            validate_repo_segment("repo", repo)?;
-                            (
-                                owner.clone(),
-                                repo.clone(),
-                                parse_pull_request(pull_request)?,
-                            )
-                        }
-                        _ => return Err(AppError::InvalidArguments),
-                    };
-                    (
-                        format!("{owner}/{repo}"),
-                        Target::MergeRequest(pull_request),
-                    )
-                }
-            },
-            Platform::GitLab => {
-                // GitLab project paths may contain subgroups, e.g. group/subgroup/project.
-                match commit {
-                    Some(hash) => {
-                        if positionals.is_empty() {
-                            return Err(AppError::InvalidGitLabCommitArguments);
-                        }
-                        let project = positionals.join("/");
-                        validate_gitlab_project(&project)?;
-                        validate_commit_hash(&hash)?;
-                        (project, Target::Commit(hash))
-                    }
-                    None => {
-                        let Some((merge_request, project_parts)) = positionals.split_last()
-                        else {
-                            return Err(AppError::InvalidGitLabArguments);
-                        };
-                        if project_parts.is_empty() {
-                            return Err(AppError::InvalidGitLabArguments);
-                        }
-                        let project = project_parts.join("/");
-                        validate_gitlab_project(&project)?;
-                        let merge_request = parse_merge_request(merge_request)?;
-                        (project, Target::MergeRequest(merge_request))
-                    }
-                }
-            }
-        };
-
-        Ok(Self {
-            project,
-            platform,
-            target,
-            output_dir,
-            force,
-            squash,
-        })
-    }
-
-    fn patch_url(&self) -> String {
-        match self.platform {
-            Platform::GitHub => match &self.target {
-                // GitHub's PR diff represents the net change; .patch contains each commit.
-                Target::MergeRequest(pull_request) => {
-                    let extension = if self.squash { "diff" } else { "patch" };
-                    format!(
-                        "https://github.com/{}/pull/{}.{extension}",
-                        self.project, pull_request
-                    )
-                }
-                Target::Commit(hash) => {
-                    format!("https://github.com/{}/commit/{hash}.patch", self.project)
-                }
-            },
-            Platform::GitLab => match &self.target {
-                Target::MergeRequest(merge_request) => {
-                    let extension = if self.squash { "diff" } else { "patch" };
-                    format!(
-                        "https://gitlab.com/{}/-/merge_requests/{}.{extension}",
-                        self.project, merge_request
-                    )
-                }
-                Target::Commit(hash) => {
-                    format!("https://gitlab.com/{}/-/commit/{hash}.patch", self.project)
-                }
-            },
-        }
-    }
-
-    fn patch_parts(&self, patch: &str) -> Vec<PatchPart> {
-        match &self.target {
-            Target::Commit(hash) => {
-                if patch.trim().is_empty() {
-                    return Vec::new();
-                }
-                // A commit .patch is a single mail-formatted patch; keep it verbatim.
-                vec![PatchPart {
-                    index: 1,
-                    commit: None,
-                    subject: format!("commit {hash}"),
-                    filename: format!("{hash}.patch"),
-                    content: patch.to_string(),
-                }]
-            }
-            Target::MergeRequest(number) => {
-                if !self.squash {
-                    return split_patch_by_commit(patch);
-                }
-                if patch.trim().is_empty() {
-                    return Vec::new();
-                }
-                let (subject, filename) = match self.platform {
-                    Platform::GitHub => (format!("PR #{number}"), format!("pr-{number}.patch")),
-                    Platform::GitLab => (format!("MR #{number}"), format!("mr-{number}.patch")),
-                };
-                vec![PatchPart {
-                    index: 1,
-                    commit: None,
-                    subject,
-                    filename,
-                    content: patch.to_string(),
-                }]
-            }
-        }
-    }
-}
-
-fn parse_repo_spec(value: &str) -> Result<(String, String), AppError> {
-    let Some((owner, repo)) = value.split_once('/') else {
-        return Err(AppError::InvalidRepoSpec(value.to_string()));
-    };
-
-    if repo.contains('/') {
-        return Err(AppError::InvalidRepoSpec(value.to_string()));
-    }
-
-    validate_repo_segment("owner", owner)?;
-    validate_repo_segment("repo", repo)?;
-    Ok((owner.to_string(), repo.to_string()))
-}
-
-fn validate_repo_segment(kind: &'static str, value: &str) -> Result<(), AppError> {
-    if value.is_empty()
-        || value.chars().any(|character| {
-            character == '/' || character.is_whitespace() || character.is_control()
-        })
-    {
-        return Err(AppError::InvalidRepoSegment {
-            kind,
-            value: value.to_string(),
-        });
-    }
-
-    Ok(())
-}
-
-fn parse_pull_request(value: &str) -> Result<u64, AppError> {
-    let pull_request = value
-        .parse::<u64>()
-        .map_err(|_| AppError::InvalidPullRequest(value.to_string()))?;
-
-    if pull_request == 0 {
-        Err(AppError::InvalidPullRequest(value.to_string()))
-    } else {
-        Ok(pull_request)
-    }
-}
-
-fn parse_merge_request(value: &str) -> Result<u64, AppError> {
-    let merge_request = value
-        .parse::<u64>()
-        .map_err(|_| AppError::InvalidMergeRequest(value.to_string()))?;
-
-    if merge_request == 0 {
-        Err(AppError::InvalidMergeRequest(value.to_string()))
-    } else {
-        Ok(merge_request)
-    }
-}
-
-fn validate_gitlab_project(value: &str) -> Result<(), AppError> {
-    // GitLab projects live under a namespace and may be nested in subgroups.
-    let segments: Vec<&str> = value.split('/').collect();
-    let valid = segments.len() >= 2
-        && segments.iter().all(|segment| {
-            !segment.is_empty()
-                && !segment
-                    .chars()
-                    .any(|character| character.is_whitespace() || character.is_control())
-        });
-
-    if valid {
-        Ok(())
-    } else {
-        Err(AppError::InvalidGitLabProject(value.to_string()))
-    }
-}
-
-fn validate_commit_hash(value: &str) -> Result<(), AppError> {
-    // Git abbreviations are at least 4 hex characters; full SHAs are 40.
-    let valid =
-        (4..=40).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit());
-
-    if valid {
-        Ok(())
-    } else {
-        Err(AppError::InvalidCommitHash(value.to_string()))
-    }
-}
-
-fn download_patch(url: &str) -> Result<String, AppError> {
-    // Rust's standard library has no HTTPS client; calling curl keeps downloads simple.
-    let output = Command::new("curl")
-        .arg("--fail")
-        .arg("--location")
-        .arg("--silent")
-        .arg("--show-error")
-        .arg("--user-agent")
-        .arg(format!("patchsplit/{}", patchsplit::version()))
-        .arg(url)
-        .output()
-        .map_err(AppError::DownloadCommand)?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(AppError::DownloadFailed {
-            status: output.status.code(),
-            message: stderr,
-        });
-    }
-
-    Ok(String::from_utf8(output.stdout)?)
 }
 
 fn write_parts(
@@ -441,204 +116,14 @@ fn write_parts(
     Ok(written)
 }
 
-#[derive(Debug, thiserror::Error)]
-enum AppError {
-    #[error("help requested")]
-    Help,
-    #[error("version requested")]
-    Version,
-    #[error("expected a GitHub repository and pull request number")]
-    InvalidArguments,
-    #[error("repository must use owner/repo form, got {0:?}")]
-    InvalidRepoSpec(String),
-    #[error("invalid GitHub repository {kind}: {value:?}")]
-    InvalidRepoSegment { kind: &'static str, value: String },
-    #[error("pull request number must be a positive integer, got {0:?}")]
-    InvalidPullRequest(String),
-    #[error("expected a GitHub repository with --commit <hash>")]
-    InvalidCommitArguments,
-    #[error("expected a GitLab project and merge request number")]
-    InvalidGitLabArguments,
-    #[error("expected a GitLab project with --commit <hash>")]
-    InvalidGitLabCommitArguments,
-    #[error("GitLab project must use namespace/project form (subgroups allowed), got {0:?}")]
-    InvalidGitLabProject(String),
-    #[error("merge request number must be a positive integer, got {0:?}")]
-    InvalidMergeRequest(String),
-    #[error("commit hash must consist of 4 to 40 hexadecimal characters, got {0:?}")]
-    InvalidCommitHash(String),
-    #[error("--commit cannot be combined with --squash")]
-    CommitWithSquash,
-    #[error("missing value for {0}")]
-    MissingOptionValue(String),
-    #[error("unknown option {0}")]
-    UnknownOption(String),
-    #[error("failed to run curl: {0}")]
-    DownloadCommand(#[source] std::io::Error),
-    #[error("download failed with status {status:?}: {message}")]
-    DownloadFailed {
-        status: Option<i32>,
-        message: String,
-    },
-    #[error("downloaded patch is not valid UTF-8: {0}")]
-    PatchNotUtf8(#[from] std::string::FromUtf8Error),
-    #[error("downloaded patch is empty")]
-    EmptyPatch,
-    #[error("downloaded content is not a Git diff")]
-    InvalidDiff,
-    #[error("failed to create output directory {path:?}: {source}")]
-    CreateOutputDir {
-        path: PathBuf,
-        source: std::io::Error,
-    },
-    #[error("failed to write patch file {path:?}: {source}")]
-    WritePatch {
-        path: PathBuf,
-        source: std::io::Error,
-    },
-}
-
-impl AppError {
-    fn exit_code(&self) -> i32 {
-        match self {
-            Self::InvalidArguments
-            | Self::InvalidRepoSpec(_)
-            | Self::InvalidRepoSegment { .. }
-            | Self::InvalidPullRequest(_)
-            | Self::InvalidCommitArguments
-            | Self::InvalidGitLabArguments
-            | Self::InvalidGitLabCommitArguments
-            | Self::InvalidGitLabProject(_)
-            | Self::InvalidMergeRequest(_)
-            | Self::InvalidCommitHash(_)
-            | Self::CommitWithSquash
-            | Self::MissingOptionValue(_)
-            | Self::UnknownOption(_) => 2,
-            _ => 1,
-        }
-    }
-}
-
-impl AppError {
-    fn message(&self) -> String {
-        match self {
-            Self::Help | Self::Version => String::new(),
-            Self::InvalidArguments => tr("expected a GitHub repository and pull request number"),
-            Self::InvalidRepoSpec(value) => tr_args(
-                "repository must use owner/repo form, got {value}",
-                &[("value", quoted(value))],
-            ),
-            Self::InvalidRepoSegment { kind, value } => tr_args(
-                "invalid GitHub repository {kind}: {value}",
-                &[("kind", repo_segment_label(kind)), ("value", quoted(value))],
-            ),
-            Self::InvalidPullRequest(value) => tr_args(
-                "pull request number must be a positive integer, got {value}",
-                &[("value", quoted(value))],
-            ),
-            Self::InvalidCommitArguments => {
-                tr("expected a GitHub repository with --commit <hash>")
-            }
-            Self::InvalidGitLabArguments => {
-                tr("expected a GitLab project and merge request number")
-            }
-            Self::InvalidGitLabCommitArguments => {
-                tr("expected a GitLab project with --commit <hash>")
-            }
-            Self::InvalidGitLabProject(value) => tr_args(
-                "GitLab project must use namespace/project form (subgroups allowed), got {value}",
-                &[("value", quoted(value))],
-            ),
-            Self::InvalidMergeRequest(value) => tr_args(
-                "merge request number must be a positive integer, got {value}",
-                &[("value", quoted(value))],
-            ),
-            Self::InvalidCommitHash(value) => tr_args(
-                "commit hash must consist of 4 to 40 hexadecimal characters, got {value}",
-                &[("value", quoted(value))],
-            ),
-            Self::CommitWithSquash => tr("--commit cannot be combined with --squash"),
-            Self::MissingOptionValue(option) => {
-                tr_args("missing value for {option}", &[("option", option.clone())])
-            }
-            Self::UnknownOption(option) => {
-                tr_args("unknown option {option}", &[("option", option.clone())])
-            }
-            Self::DownloadCommand(source) if source.kind() == std::io::ErrorKind::NotFound => {
-                tr("curl was not found in PATH")
-            }
-            Self::DownloadCommand(source) => tr_args(
-                "failed to run curl: {source}",
-                &[("source", source.to_string())],
-            ),
-            Self::DownloadFailed { status, message } => match (status, message.is_empty()) {
-                (Some(code), false) => tr_args(
-                    "download failed with status {status}: {message}",
-                    &[
-                        ("status", code.to_string()),
-                        ("message", message.to_string()),
-                    ],
-                ),
-                (Some(code), true) => tr_args(
-                    "download failed with status {status}",
-                    &[("status", code.to_string())],
-                ),
-                (None, false) => tr_args(
-                    "download failed: {message}",
-                    &[("message", message.to_string())],
-                ),
-                (None, true) => tr("download failed"),
-            },
-            Self::PatchNotUtf8(source) => tr_args(
-                "downloaded patch is not valid UTF-8: {source}",
-                &[("source", source.to_string())],
-            ),
-            Self::EmptyPatch => tr("downloaded patch is empty"),
-            Self::InvalidDiff => tr("downloaded content is not a Git diff"),
-            Self::CreateOutputDir { path, source } => tr_args(
-                "failed to create output directory {path}: {source}",
-                &[
-                    ("path", path.display().to_string()),
-                    ("source", source.to_string()),
-                ],
-            ),
-            Self::WritePatch { path, source }
-                if source.kind() == std::io::ErrorKind::AlreadyExists =>
-            {
-                tr_args(
-                    "refusing to overwrite existing patch file {path}; pass --force to replace it",
-                    &[("path", path.display().to_string())],
-                )
-            }
-            Self::WritePatch { path, source } => tr_args(
-                "failed to write patch file {path}: {source}",
-                &[
-                    ("path", path.display().to_string()),
-                    ("source", source.to_string()),
-                ],
-            ),
-        }
-    }
-}
-
-fn quoted(value: &str) -> String {
-    format!("{value:?}")
-}
-
-fn repo_segment_label(kind: &str) -> String {
-    match kind {
-        "owner" => tr("owner"),
-        "repo" => tr("repo"),
-        other => other.to_string(),
-    }
-}
-
 fn usage() -> String {
     tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]\n  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the net diff as one patch instead of splitting by commit\n      --gitlab      Download from gitlab.com (merge requests and commits)\n      --commit <hash> Download one commit's .patch (short or full hash)\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113\n  patchsplit --gitlab zitzhen/patchsplit 1")
 }
-    #[cfg(test)]
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::Platform;
 
     fn config(args: &[&str]) -> Config {
         Config::parse(args.iter().map(|arg| arg.to_string())).unwrap()
@@ -647,8 +132,11 @@ mod tests {
     #[test]
     fn default_still_downloads_per_commit_patches() {
         let config = config(&["owner/repo", "42"]);
-        assert!(!config.squash);
-        assert_eq!(config.patch_url(), "https://github.com/owner/repo/pull/42.patch");
+        assert!(!config.options.squash);
+        assert_eq!(
+            config.patch_url(),
+            "https://github.com/owner/repo/pull/42.patch"
+        );
         let patch = format!(
             "From {} Mon Sep 17 00:00:00 2001\nSubject: [PATCH 1/2] First\n\nfirst\nFrom {} Mon Sep 17 00:00:00 2001\nSubject: [PATCH 2/2] Second\n\nsecond\n",
             "1".repeat(40), "2".repeat(40)
@@ -663,10 +151,14 @@ mod tests {
             vec!["-s", "owner", "repo", "42", "-o", "combined", "-f"],
         ] {
             let config = config(&args);
-            assert_eq!(config.patch_url(), "https://github.com/owner/repo/pull/42.diff");
-            assert_eq!(config.output_dir, PathBuf::from("combined"));
-            assert!(config.force);
-            let diff = "diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+final\n";
+            assert_eq!(
+                config.patch_url(),
+                "https://github.com/owner/repo/pull/42.diff"
+            );
+            assert_eq!(config.options.output_dir, PathBuf::from("combined"));
+            assert!(config.options.force);
+            let diff =
+                "diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+final\n";
             let parts = config.patch_parts(diff);
             assert_eq!(parts.len(), 1);
             assert_eq!(parts[0].filename, "pr-42.patch");
@@ -724,12 +216,11 @@ mod tests {
         }
 
         assert!(parse_err(&["owner/repo", "--commit"]).contains("MissingOptionValue"));
-        assert!(
-            parse_err(&["owner", "repo", "42", "--commit", "b430113"])
-                .contains("InvalidCommitArguments")
-        );
+        assert!(parse_err(&["owner", "repo", "42", "--commit", "b430113"])
+            .contains("InvalidCommitArguments"));
         assert!(parse_err(&["--commit", "b430113"]).contains("InvalidCommitArguments"));
-        assert!(parse_err(&["owner/repo", "42", "--commit", "b430113", "--squash"])
+        assert!(
+            parse_err(&["owner/repo", "42", "--commit", "b430113", "--squash"])
                 .contains("CommitWithSquash")
         );
     }
@@ -753,13 +244,7 @@ mod tests {
 
     #[test]
     fn gitlab_squash_writes_one_mr_named_diff() {
-        let config = config(&[
-            "--gitlab",
-            "zitzhen/patchsplit",
-            "1",
-            "--squash",
-            "--force",
-        ]);
+        let config = config(&["--gitlab", "zitzhen/patchsplit", "1", "--squash", "--force"]);
         assert_eq!(config.project, "zitzhen/patchsplit");
         assert_eq!(
             config.patch_url(),
@@ -779,24 +264,12 @@ mod tests {
         let project = "zitzhen/patchsplit";
         let full_commit_option = format!("--commit={FULL_HASH}");
         let cases: Vec<(Vec<&str>, &str)> = vec![
+            (vec!["--gitlab", project, "--commit", "fafbad6"], "fafbad6"),
             (
-                vec!["--gitlab", project, "--commit", "fafbad6"],
-                "fafbad6",
-            ),
-            (
-                vec![
-                    "--gitlab",
-                    "zitzhen",
-                    "patchsplit",
-                    "--commit",
-                    "de9ea1a",
-                ],
+                vec!["--gitlab", "zitzhen", "patchsplit", "--commit", "de9ea1a"],
                 "de9ea1a",
             ),
-            (
-                vec!["--gitlab", project, &full_commit_option],
-                FULL_HASH,
-            ),
+            (vec!["--gitlab", project, &full_commit_option], FULL_HASH),
             (
                 vec![
                     "--gitlab",
@@ -839,26 +312,21 @@ mod tests {
             .contains("InvalidGitLabProject"));
         assert!(parse_err(&["--gitlab", "group//project", "363"]).contains("InvalidGitLabProject"));
         assert!(parse_err(&["--gitlab", "group/project", "0"]).contains("InvalidMergeRequest"));
-        assert!(parse_err(&["--gitlab", "group/project", "abc"])
-            .contains("InvalidMergeRequest"));
+        assert!(parse_err(&["--gitlab", "group/project", "abc"]).contains("InvalidMergeRequest"));
         assert!(parse_err(&["--gitlab", "363"]).contains("InvalidGitLabArguments"));
         assert!(parse_err(&["--gitlab"]).contains("InvalidGitLabArguments"));
-        assert!(
-            parse_err(&["--gitlab", "--commit", "de9ea1a"])
-                .contains("InvalidGitLabCommitArguments")
-        );
+        assert!(parse_err(&["--gitlab", "--commit", "de9ea1a"])
+            .contains("InvalidGitLabCommitArguments"));
         assert!(parse_err(&["--gitlab", "group/project", "--commit", "xyz"])
             .contains("InvalidCommitHash"));
-        assert!(
-            parse_err(&[
-                "--gitlab",
-                "group/project",
-                "363",
-                "--commit",
-                "de9ea1a",
-                "--squash"
-            ])
-            .contains("CommitWithSquash")
-        );
+        assert!(parse_err(&[
+            "--gitlab",
+            "group/project",
+            "363",
+            "--commit",
+            "de9ea1a",
+            "--squash"
+        ])
+        .contains("CommitWithSquash"));
     }
 }
