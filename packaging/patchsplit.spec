@@ -1,5 +1,5 @@
 Name:           patchsplit
-Version:        1.3.0
+Version:        1.3.1
 Release:        1%{?dist}
 
 Summary:        A tool for splitting patch files
@@ -42,6 +42,8 @@ install -Dm644 packaging/patchsplit.1 \
 %{_mandir}/man1/patchsplit.1*
 
 %changelog
+* Sat Sep 19 2026 Oliver Lin <oliver@liuxiaozhen.dev> - 1.3.1-1
+
 * Sat Sep 19 2026 Oliver Lin <oliver@liuxiaozhen.dev> - 1.3.0-1
 
 * Sun Sep 13 2026 Oliver Lin <oliver@liuxiaozhen.dev> - 1.1.0-1
