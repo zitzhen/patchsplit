@@ -41,7 +41,7 @@ fn main() {
 fn run() -> Result<(), AppError> {
     let config = Config::parse(env::args().skip(1))?;
     let url = config.patch_url();
-    let patch = download_patch(&url)?;
+    let patch = download_patch(&url, config.tor_proxy.as_deref())?;
     if config.squash && !patch.trim().is_empty() && !patch.starts_with("diff --git ") {
         return Err(AppError::InvalidDiff);
     }
@@ -53,7 +53,16 @@ fn run() -> Result<(), AppError> {
 
     let written = write_parts(&parts, &config.output_dir, config.force)?;
 
-    println!("{}", tr_args("downloaded {url}", &[("url", url)]));
+    match &config.tor_proxy {
+        Some(proxy) => println!(
+            "{}",
+            tr_args(
+                "downloaded {url} through Tor via SOCKS5 proxy {proxy}",
+                &[("url", url), ("proxy", proxy.clone())]
+            )
+        ),
+        None => println!("{}", tr_args("downloaded {url}", &[("url", url)])),
+    }
     println!(
         "{}",
         tr_args(
@@ -80,6 +89,8 @@ struct Config {
     output_dir: PathBuf,
     force: bool,
     squash: bool,
+    /// SOCKS5 endpoint used for downloads when `--tor` is active.
+    tor_proxy: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +114,7 @@ impl Config {
         let mut force = false;
         let mut squash = false;
         let mut gitlab = false;
+        let mut tor_proxy = None;
         let mut commit = None;
         let mut positionals = Vec::new();
         let mut args = args.into_iter();
@@ -114,6 +126,10 @@ impl Config {
                 "-f" | "--force" => force = true,
                 "-s" | "--squash" => squash = true,
                 "--gitlab" => gitlab = true,
+                "--tor" => tor_proxy = Some(DEFAULT_TOR_PROXY.to_string()),
+                value if value.starts_with("--tor=") => {
+                    tor_proxy = Some(parse_tor_proxy(&value["--tor=".len()..])?);
+                }
                 "-o" | "--out" => {
                     let option = arg.as_str().to_string();
                     let value = args.next().ok_or(AppError::MissingOptionValue(option))?;
@@ -225,6 +241,7 @@ impl Config {
             output_dir,
             force,
             squash,
+            tor_proxy,
         })
     }
 
@@ -379,23 +396,86 @@ fn validate_commit_hash(value: &str) -> Result<(), AppError> {
     }
 }
 
-fn download_patch(url: &str) -> Result<String, AppError> {
+/// Default SOCKS5 endpoint of a local Tor daemon.
+const DEFAULT_TOR_PROXY: &str = "127.0.0.1:9050";
+
+/// Accept `host:port` and `[ipv6]:port`; reject schemes and malformed ports.
+fn parse_tor_proxy(value: &str) -> Result<String, AppError> {
+    let invalid = || AppError::InvalidTorProxy(value.to_string());
+
+    if value.is_empty()
+        || value.contains("://")
+        || value
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err(invalid());
+    }
+
+    let (host, port) = if let Some(rest) = value.strip_prefix('[') {
+        rest.split_once("]:").ok_or_else(&invalid)?
+    } else {
+        let (host, port) = value.rsplit_once(':').ok_or_else(&invalid)?;
+        if host.contains(':') {
+            // Bare IPv6 addresses are ambiguous; require the bracketed form.
+            return Err(invalid());
+        }
+        (host, port)
+    };
+
+    if host.is_empty() || !matches!(port.parse::<u16>(), Ok(port) if port != 0) {
+        return Err(invalid());
+    }
+
+    Ok(value.to_string())
+}
+
+/// Build the curl arguments used to fetch a patch, optionally through Tor.
+fn download_args(url: &str, tor_proxy: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "--fail".to_string(),
+        "--location".to_string(),
+        "--silent".to_string(),
+        "--show-error".to_string(),
+    ];
+
+    if let Some(proxy) = tor_proxy {
+        // `--socks5-hostname` also resolves DNS through Tor, so lookups do not leak.
+        args.push("--socks5-hostname".to_string());
+        args.push(proxy.to_string());
+    }
+
+    args.push("--user-agent".to_string());
+    args.push(format!("patchsplit/{}", patchsplit::version()));
+    args.push(url.to_string());
+
+    args
+}
+
+fn download_patch(url: &str, tor_proxy: Option<&str>) -> Result<String, AppError> {
     // Rust's standard library has no HTTPS client; calling curl keeps downloads simple.
     let output = Command::new("curl")
-        .arg("--fail")
-        .arg("--location")
-        .arg("--silent")
-        .arg("--show-error")
-        .arg("--user-agent")
-        .arg(format!("patchsplit/{}", patchsplit::version()))
-        .arg(url)
+        .args(download_args(url, tor_proxy))
         .output()
         .map_err(AppError::DownloadCommand)?;
 
     if !output.status.success() {
+        let status = output.status.code();
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+        // curl exits 5 and 7 when the proxy or the destination cannot be reached.
+        if let (Some(proxy), Some(code)) = (tor_proxy, status) {
+            if code == 5 || code == 7 {
+                return Err(AppError::TorProxyUnreachable {
+                    proxy: proxy.to_string(),
+                    status: code,
+                    message: stderr,
+                });
+            }
+        }
+
         return Err(AppError::DownloadFailed {
-            status: output.status.code(),
+            status,
             message: stderr,
         });
     }
@@ -467,6 +547,8 @@ enum AppError {
     InvalidMergeRequest(String),
     #[error("commit hash must consist of 4 to 40 hexadecimal characters, got {0:?}")]
     InvalidCommitHash(String),
+    #[error("Tor proxy must use host:port form, got {0:?}")]
+    InvalidTorProxy(String),
     #[error("--commit cannot be combined with --squash")]
     CommitWithSquash,
     #[error("missing value for {0}")]
@@ -478,6 +560,12 @@ enum AppError {
     #[error("download failed with status {status:?}: {message}")]
     DownloadFailed {
         status: Option<i32>,
+        message: String,
+    },
+    #[error("could not reach the Tor SOCKS5 proxy at {proxy} (curl exit {status}): {message}")]
+    TorProxyUnreachable {
+        proxy: String,
+        status: i32,
         message: String,
     },
     #[error("downloaded patch is not valid UTF-8: {0}")]
@@ -511,6 +599,7 @@ impl AppError {
             | Self::InvalidGitLabProject(_)
             | Self::InvalidMergeRequest(_)
             | Self::InvalidCommitHash(_)
+            | Self::InvalidTorProxy(_)
             | Self::CommitWithSquash
             | Self::MissingOptionValue(_)
             | Self::UnknownOption(_) => 2,
@@ -557,6 +646,10 @@ impl AppError {
                 "commit hash must consist of 4 to 40 hexadecimal characters, got {value}",
                 &[("value", quoted(value))],
             ),
+            Self::InvalidTorProxy(value) => tr_args(
+                "Tor proxy must use host:port form, got {value}",
+                &[("value", quoted(value))],
+            ),
             Self::CommitWithSquash => tr("--commit cannot be combined with --squash"),
             Self::MissingOptionValue(option) => {
                 tr_args("missing value for {option}", &[("option", option.clone())])
@@ -589,6 +682,26 @@ impl AppError {
                 ),
                 (None, true) => tr("download failed"),
             },
+            Self::TorProxyUnreachable {
+                proxy,
+                status,
+                message,
+            } if message.is_empty() => tr_args(
+                "could not reach the Tor SOCKS5 proxy at {proxy} (curl exit {status}); is Tor running? Pass --tor=<host:port> to use another proxy",
+                &[("proxy", proxy.clone()), ("status", status.to_string())],
+            ),
+            Self::TorProxyUnreachable {
+                proxy,
+                status,
+                message,
+            } => tr_args(
+                "could not reach the Tor SOCKS5 proxy at {proxy} (curl exit {status}): {message}; is Tor running? Pass --tor=<host:port> to use another proxy",
+                &[
+                    ("proxy", proxy.clone()),
+                    ("status", status.to_string()),
+                    ("message", message.clone()),
+                ],
+            ),
             Self::PatchNotUtf8(source) => tr_args(
                 "downloaded patch is not valid UTF-8: {source}",
                 &[("source", source.to_string())],
@@ -634,7 +747,7 @@ fn repo_segment_label(kind: &str) -> String {
 }
 
 fn usage() -> String {
-    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]\n  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the net diff as one patch instead of splitting by commit\n      --gitlab      Download from gitlab.com (merge requests and commits)\n      --commit <hash> Download one commit's .patch (short or full hash)\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113\n  patchsplit --gitlab zitzhen/patchsplit 1")
+    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]\n  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the net diff as one patch instead of splitting by commit\n      --gitlab      Download from gitlab.com (merge requests and commits)\n      --commit <hash> Download one commit's .patch (short or full hash)\n      --tor[=<host:port>] Download through the Tor network over SOCKS5\n                          [default: 127.0.0.1:9050]\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113\n  patchsplit zitzhen/patchsplit 1 --tor\n  patchsplit --gitlab zitzhen/patchsplit 1")
 }
     #[cfg(test)]
 mod tests {
@@ -860,5 +973,83 @@ mod tests {
             ])
             .contains("CommitWithSquash")
         );
+    }
+
+    #[test]
+    fn tor_flag_routes_downloads_through_the_default_socks5_proxy() {
+        let config = config(&["owner/repo", "42", "--tor"]);
+        let user_agent = format!("patchsplit/{}", patchsplit::version());
+
+        assert_eq!(config.tor_proxy.as_deref(), Some(DEFAULT_TOR_PROXY));
+        assert_eq!(
+            download_args("https://example.com/p.patch", config.tor_proxy.as_deref()),
+            vec![
+                "--fail",
+                "--location",
+                "--silent",
+                "--show-error",
+                "--socks5-hostname",
+                "127.0.0.1:9050",
+                "--user-agent",
+                user_agent.as_str(),
+                "https://example.com/p.patch",
+            ]
+        );
+    }
+
+    #[test]
+    fn tor_flag_accepts_a_custom_proxy() {
+        for value in [
+            "127.0.0.1:9150",
+            "tor.internal:9050",
+            "[::1]:9050",
+            "localhost:12345",
+        ] {
+            let option = format!("--tor={value}");
+            let config = config(&["owner/repo", "42", &option]);
+            assert_eq!(config.tor_proxy.as_deref(), Some(value));
+        }
+
+        // The last option wins, so a custom proxy can follow a bare --tor.
+        let config = config(&["owner/repo", "42", "--tor", "--tor=127.0.0.1:9150"]);
+        assert_eq!(config.tor_proxy.as_deref(), Some("127.0.0.1:9150"));
+    }
+
+    #[test]
+    fn tor_proxy_is_absent_without_the_flag() {
+        let config = config(&["owner/repo", "42"]);
+
+        assert_eq!(config.tor_proxy, None);
+        let args = download_args("https://example.com/p.patch", None);
+        assert!(!args.iter().any(|arg| arg.contains("socks5")));
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("https://example.com/p.patch")
+        );
+    }
+
+    #[test]
+    fn tor_flag_rejects_malformed_proxies_with_exit_code_two() {
+        for value in [
+            "",
+            "127.0.0.1",
+            "127.0.0.1:",
+            ":9050",
+            "127.0.0.1:0",
+            "127.0.0.1:99999",
+            "127.0.0.1:port",
+            "socks5://127.0.0.1:9050",
+            "::1:9050",
+            "127.0.0.1:9050 extra",
+        ] {
+            let option = format!("--tor={value}");
+            let args = ["owner/repo", "42", option.as_str()];
+            let error = Config::parse(args.iter().map(|arg| arg.to_string())).unwrap_err();
+            assert!(
+                matches!(error, AppError::InvalidTorProxy(_)),
+                "expected {value:?} to be rejected, got {error:?}"
+            );
+            assert_eq!(error.exit_code(), 2);
+        }
     }
 }

@@ -15,6 +15,8 @@ reviewing, sharing, and applying changes locally.
   with either a short or full hash.
 - **GitLab support:** Pass `--gitlab` to fetch merge requests and commits from
   gitlab.com, including projects nested under subgroups.
+- **Tor support:** Pass `--tor` to download through the Tor network over a local
+  SOCKS5 proxy, resolving hostnames inside Tor.
 - **Combined diff:** Use `--squash` to export the request's net changes as a single patch.
 - **Predictable output:** Choose an output directory; existing files are only
   overwritten when you pass `--force`.
@@ -244,6 +246,40 @@ just like a GitHub PR, split into one mail-formatted patch per commit. With
 verbatim patch to `<hash>.patch`. The same `--out`, `--force`, and `--squash`
 rules apply, and `--commit` cannot be combined with `--squash`.
 
+### Download through Tor
+
+Pass `--tor` to route the download through the Tor network instead of
+connecting to GitHub or GitLab directly:
+
+```sh
+patchsplit zitzhen/patchsplit 16 --tor
+patchsplit --gitlab zitzhen/patchsplit 1 --tor -o mr-1-patches
+```
+
+`--tor` uses the local Tor SOCKS5 endpoint `127.0.0.1:9050`, the default for a
+Tor daemon. If your Tor client listens elsewhere, for example the Tor Browser
+bundle on port 9150, pass the endpoint explicitly:
+
+```sh
+patchsplit zitzhen/patchsplit 16 --tor=127.0.0.1:9150
+patchsplit zitzhen/patchsplit 16 --tor=[::1]:9050
+```
+
+Downloads then run as `curl --socks5-hostname <host:port>`, so hostnames are
+resolved inside Tor rather than by a local resolver, and redirects are followed
+through the same proxy. Any `http_proxy`, `https_proxy`, or `ALL_PROXY`
+environment variables are ignored while `--tor` is active, so an ambient proxy
+cannot leak the request. The proxy endpoint must use `host:port` form; a
+malformed value is rejected before downloading.
+
+Start Tor first. If the proxy cannot be reached, `patchsplit` reports the
+endpoint in use and exits with an error instead of falling back to a direct
+connection:
+
+```text
+error: could not reach the Tor SOCKS5 proxy at 127.0.0.1:9050 (curl exit 7): ...
+```
+
 ### Options
 
 | Option | Description |
@@ -253,6 +289,7 @@ rules apply, and `--commit` cannot be combined with `--squash`.
 | `-s, --squash` | Write the request's net diff as one patch. |
 | `--gitlab` | Download a merge request or commit from gitlab.com. |
 | `--commit <hash>` | Download one commit's `.patch`; accepts a short or full hash. |
+| `--tor[=<host:port>]` | Download through the Tor network via a SOCKS5 proxy (default: `127.0.0.1:9050`). |
 | `-h, --help` | Show help. |
 | `-V, --version` | Show version. |
 
