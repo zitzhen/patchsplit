@@ -83,12 +83,28 @@ patchsplit --gitlab group/subgroup/project 1 --squash -o mr-1-patches
 写入 `<hash>.patch`。`--out`、`--force`、`--squash` 的规则与 GitHub 模式相同，
 `--commit` 不能与 `--squash` 同时使用。
 
+### 从自定义主机下载
+
+默认情况下 `patchsplit` 访问 `github.com`，加 `--gitlab` 时访问 `gitlab.com`。
+传入 `--host <host>` 可改为访问提供相同补丁接口的其他主机，例如 GitHub
+Enterprise Server 或自建的 GitLab 实例：
+
+```sh
+patchsplit --host git.corp.example.com owner/repo 42
+patchsplit --gitlab --host gitlab.internal group/project 7 --squash
+```
+
+host 为纯主机名，可带端口（例如 `gitlab.internal:8443`），请求始终使用
+`https`，不要包含协议头或路径。`--host` 与 `--gitlab` 同时使用时按 GitLab 的
+URL 结构拼接，不加 `--gitlab` 时按 GitHub 结构拼接。
+
 ## 参数
 
 - `-o, --out <dir>`：指定 patch 文件的输出目录。
 - `-f, --force`：允许覆盖已存在的 patch 文件。
 - `-s, --squash`：将 PR/MR 的最终净变化输出为一个补丁。
 - `--gitlab`：改为从 gitlab.com 下载合并请求或单个 commit（项目路径支持子组）。
+- `--host <host>`：使用自定义主机名，而非平台默认主机。
 - `--commit <hash>`：下载单个 commit 的 `.patch`，接受短哈希或完整哈希。
 - `-h, --help`：显示帮助。
 - `-V, --version`：显示版本。

@@ -125,6 +125,18 @@ The project argument uses
 .I namespace/project
 form and may contain subgroups.
 .TP
+.BR \-\-host " " \fIhost\fR
+Download from
+.I host
+instead of the platform default
+.RB ( github.com ", or " gitlab.com " when " \-\-gitlab " is given)."
+Use this for a GitHub Enterprise Server or a self-hosted GitLab instance that
+serves the same patch endpoints.
+.I host
+is a bare hostname with an optional port, for example
+.IR gitlab.internal:8443 ;
+requests always use https. Do not include a scheme or a path.
+.TP
 .BR \-\-commit " " \fIhash\fR
 Download the .patch of a single commit instead of a pull request.
 .I hash
@@ -174,6 +186,11 @@ Download and split merge request 1 from the GitLab project
 .B patchsplit \-\-gitlab zitzhen/patchsplit \-\-commit de9ea1a
 Download the patch for commit de9ea1a from GitLab and write it to
 .BR de9ea1a.patch .
+.TP
+.B patchsplit \-\-host git.corp.example.com owner/repo 42
+Download and split pull request 42 from
+.B owner/repo
+on a GitHub Enterprise host instead of github.com.
 .SH REQUIREMENTS
 .B patchsplit
 uses

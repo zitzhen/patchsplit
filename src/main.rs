@@ -76,6 +76,9 @@ struct Config {
     /// `owner/repo` on GitHub or `namespace/project` (subgroups allowed) on GitLab.
     project: String,
     platform: Platform,
+    /// Host serving the patch endpoints; overridable for GitHub Enterprise or
+    /// self-hosted GitLab via `--host`.
+    host: String,
     target: Target,
     output_dir: PathBuf,
     force: bool,
@@ -104,6 +107,7 @@ impl Config {
         let mut squash = false;
         let mut gitlab = false;
         let mut commit = None;
+        let mut host = None::<String>;
         let mut positionals = Vec::new();
         let mut args = args.into_iter();
 
@@ -121,6 +125,15 @@ impl Config {
                 }
                 value if value.starts_with("--out=") => {
                     output_dir = PathBuf::from(&value["--out=".len()..]);
+                }
+                "--host" => {
+                    let value = args
+                        .next()
+                        .ok_or(AppError::MissingOptionValue("--host".to_string()))?;
+                    host = Some(value);
+                }
+                value if value.starts_with("--host=") => {
+                    host = Some(value["--host=".len()..].to_string());
                 }
                 "-commit" | "--commit" => {
                     let value = args
@@ -149,6 +162,14 @@ impl Config {
             Platform::GitLab
         } else {
             Platform::GitHub
+        };
+
+        let host = match host {
+            Some(value) => {
+                validate_host(&value)?;
+                value
+            }
+            None => default_host(platform).to_string(),
         };
 
         let (project, target) = match platform {
@@ -221,6 +242,7 @@ impl Config {
         Ok(Self {
             project,
             platform,
+            host,
             target,
             output_dir,
             force,
@@ -235,24 +257,27 @@ impl Config {
                 Target::MergeRequest(pull_request) => {
                     let extension = if self.squash { "diff" } else { "patch" };
                     format!(
-                        "https://github.com/{}/pull/{}.{extension}",
-                        self.project, pull_request
+                        "https://{}/{}/pull/{}.{extension}",
+                        self.host, self.project, pull_request
                     )
                 }
                 Target::Commit(hash) => {
-                    format!("https://github.com/{}/commit/{hash}.patch", self.project)
+                    format!("https://{}/{}/commit/{hash}.patch", self.host, self.project)
                 }
             },
             Platform::GitLab => match &self.target {
                 Target::MergeRequest(merge_request) => {
                     let extension = if self.squash { "diff" } else { "patch" };
                     format!(
-                        "https://gitlab.com/{}/-/merge_requests/{}.{extension}",
-                        self.project, merge_request
+                        "https://{}/{}/-/merge_requests/{}.{extension}",
+                        self.host, self.project, merge_request
                     )
                 }
                 Target::Commit(hash) => {
-                    format!("https://gitlab.com/{}/-/commit/{hash}.patch", self.project)
+                    format!(
+                        "https://{}/{}/-/commit/{hash}.patch",
+                        self.host, self.project
+                    )
                 }
             },
         }
@@ -379,6 +404,29 @@ fn validate_commit_hash(value: &str) -> Result<(), AppError> {
     }
 }
 
+fn default_host(platform: Platform) -> &'static str {
+    match platform {
+        Platform::GitHub => "github.com",
+        Platform::GitLab => "gitlab.com",
+    }
+}
+
+fn validate_host(value: &str) -> Result<(), AppError> {
+    // Accept an optional port, e.g. git.corp.example.com or gitlab.internal:8443.
+    // The scheme is always https, so reject values that carry one or a path.
+    let valid = !value.is_empty()
+        && !value.contains("://")
+        && !value.chars().any(|character| {
+            character == '/' || character.is_whitespace() || character.is_control()
+        });
+
+    if valid {
+        Ok(())
+    } else {
+        Err(AppError::InvalidHost(value.to_string()))
+    }
+}
+
 fn download_patch(url: &str) -> Result<String, AppError> {
     // Rust's standard library has no HTTPS client; calling curl keeps downloads simple.
     let output = Command::new("curl")
@@ -467,6 +515,8 @@ enum AppError {
     InvalidMergeRequest(String),
     #[error("commit hash must consist of 4 to 40 hexadecimal characters, got {0:?}")]
     InvalidCommitHash(String),
+    #[error("host must be a bare hostname with an optional port, got {0:?}")]
+    InvalidHost(String),
     #[error("--commit cannot be combined with --squash")]
     CommitWithSquash,
     #[error("missing value for {0}")]
@@ -511,6 +561,7 @@ impl AppError {
             | Self::InvalidGitLabProject(_)
             | Self::InvalidMergeRequest(_)
             | Self::InvalidCommitHash(_)
+            | Self::InvalidHost(_)
             | Self::CommitWithSquash
             | Self::MissingOptionValue(_)
             | Self::UnknownOption(_) => 2,
@@ -555,6 +606,10 @@ impl AppError {
             ),
             Self::InvalidCommitHash(value) => tr_args(
                 "commit hash must consist of 4 to 40 hexadecimal characters, got {value}",
+                &[("value", quoted(value))],
+            ),
+            Self::InvalidHost(value) => tr_args(
+                "host must be a bare hostname with an optional port, got {value}",
                 &[("value", quoted(value))],
             ),
             Self::CommitWithSquash => tr("--commit cannot be combined with --squash"),
@@ -634,7 +689,7 @@ fn repo_segment_label(kind: &str) -> String {
 }
 
 fn usage() -> String {
-    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]\n  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the net diff as one patch instead of splitting by commit\n      --gitlab      Download from gitlab.com (merge requests and commits)\n      --commit <hash> Download one commit's .patch (short or full hash)\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113\n  patchsplit --gitlab zitzhen/patchsplit 1")
+    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]\n  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the net diff as one patch instead of splitting by commit\n      --gitlab      Download from gitlab.com (merge requests and commits)\n      --host <host> Use a custom host, e.g. GitHub Enterprise or self-hosted GitLab\n      --commit <hash> Download one commit's .patch (short or full hash)\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113\n  patchsplit --gitlab zitzhen/patchsplit 1\n  patchsplit --host git.corp.example.com owner/repo 42")
 }
     #[cfg(test)]
 mod tests {
@@ -860,5 +915,66 @@ mod tests {
             ])
             .contains("CommitWithSquash")
         );
+    }
+
+    #[test]
+    fn host_defaults_per_platform_and_accepts_override() {
+        assert_eq!(config(&["owner/repo", "42"]).host, "github.com");
+        assert_eq!(
+            config(&["--gitlab", "group/project", "1"]).host,
+            "gitlab.com"
+        );
+
+        let github = config(&["--host", "git.corp.example.com", "owner/repo", "42"]);
+        assert_eq!(
+            github.patch_url(),
+            "https://git.corp.example.com/owner/repo/pull/42.patch"
+        );
+
+        let github_commit = config(&[
+            "owner/repo",
+            "--commit",
+            "b430113",
+            "--host=ghe.internal:8443",
+        ]);
+        assert_eq!(
+            github_commit.patch_url(),
+            "https://ghe.internal:8443/owner/repo/commit/b430113.patch"
+        );
+
+        let gitlab = config(&[
+            "--gitlab",
+            "--host",
+            "gitlab.internal",
+            "group/subgroup/project",
+            "7",
+            "--squash",
+        ]);
+        assert_eq!(
+            gitlab.patch_url(),
+            "https://gitlab.internal/group/subgroup/project/-/merge_requests/7.diff"
+        );
+    }
+
+    #[test]
+    fn host_rejects_schemes_paths_and_blank_values() {
+        fn parse_err(args: &[&str]) -> String {
+            let error = Config::parse(args.iter().map(|arg| arg.to_string())).unwrap_err();
+            format!("{error:?}")
+        }
+
+        for host in [
+            "https://git.corp.example.com",
+            "git.corp.example.com/owner",
+            "",
+            "git corp",
+        ] {
+            assert!(
+                parse_err(&["owner/repo", "42", "--host", host]).contains("InvalidHost"),
+                "expected InvalidHost for {host:?}"
+            );
+        }
+
+        assert!(parse_err(&["owner/repo", "42", "--host"]).contains("MissingOptionValue"));
     }
 }
