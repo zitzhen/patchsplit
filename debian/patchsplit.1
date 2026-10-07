@@ -111,6 +111,23 @@ With
 fetch
 .BR https://gitlab.com/<namespace>/<project>/-/commit/<hash>.patch .
 .PP
+With
+.BR \-\-tor ,
+download through the Tor network over a local SOCKS5 proxy instead of
+connecting to GitHub or GitLab directly.
+The default endpoint is
+.BR 127.0.0.1:9050 ,
+the SOCKS5 port of a Tor daemon; pass
+.B \-\-tor=\fIhost:port\fR
+to use another endpoint such as the Tor Browser port
+.BR 127.0.0.1:9150 .
+Hostnames are resolved inside Tor, redirects are followed through the same
+proxy, and
+.B http_proxy
+style environment variables are ignored for the request.
+If the proxy cannot be reached, the download fails instead of falling back to a
+direct connection.
+.PP
 The resulting patch files are written to the
 .B patches
 directory by default.
@@ -133,6 +150,25 @@ The output file is named
 .BR <hash>.patch .
 Cannot be combined with
 .BR \-\-squash .
+.TP
+.B \-\-tor=\fIhost:port\fR
+Download through the Tor network over a SOCKS5 proxy.
+Pass
+.B \-\-tor
+without a value to use the default endpoint
+.BR 127.0.0.1:9050 ,
+or
+.B \-\-tor=\fIhost:port\fR
+to use another one, for example Tor Browser's
+.BR 127.0.0.1:9150 .
+The endpoint must use
+.I host:port
+form, and IPv6 addresses must be bracketed, as in
+.BR [::1]:9050 .
+Hostnames are resolved through the proxy and
+.B http_proxy
+style environment variables are ignored, so the request does not leak to a
+direct connection or to another proxy.
 .TP
 .BR \-o ", " \-\-out " " \fIdir\fR
 Write patch files to
@@ -174,12 +210,23 @@ Download and split merge request 1 from the GitLab project
 .B patchsplit \-\-gitlab zitzhen/patchsplit \-\-commit de9ea1a
 Download the patch for commit de9ea1a from GitLab and write it to
 .BR de9ea1a.patch .
+.TP
+.B patchsplit zitzhen/patchsplit 16 \-\-tor
+Download and split pull request 16 through the default local Tor SOCKS5 proxy.
+.TP
+.B patchsplit zitzhen/patchsplit 16 \-\-tor=127.0.0.1:9150
+Download and split pull request 16 through the SOCKS5 endpoint
+.BR 127.0.0.1:9150 ,
+as used by the Tor Browser bundle.
 .SH REQUIREMENTS
 .B patchsplit
 uses
 .B curl
 to download pull request, merge request, and commit patches from GitHub and
 GitLab.
+With
+.BR \-\-tor ,
+a running Tor client that exposes a SOCKS5 proxy is required as well.
 .SH SEE ALSO
 .BR curl (1)
 .SH AUTHORS

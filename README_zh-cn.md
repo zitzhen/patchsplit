@@ -83,6 +83,35 @@ patchsplit --gitlab group/subgroup/project 1 --squash -o mr-1-patches
 写入 `<hash>.patch`。`--out`、`--force`、`--squash` 的规则与 GitHub 模式相同，
 `--commit` 不能与 `--squash` 同时使用。
 
+### 通过 Tor 下载
+
+传入 `--tor` 即可让下载经由 Tor 网络，而不是直接连接 GitHub 或 GitLab：
+
+```sh
+patchsplit zitzhen/patchsplit 16 --tor
+patchsplit --gitlab zitzhen/patchsplit 1 --tor -o mr-1-patches
+```
+
+`--tor` 默认使用本机 Tor 的 SOCKS5 地址 `127.0.0.1:9050`。如果你的 Tor 客户端
+监听在其他地址，例如 Tor Browser 的 9150 端口，可以显式指定：
+
+```sh
+patchsplit zitzhen/patchsplit 16 --tor=127.0.0.1:9150
+patchsplit zitzhen/patchsplit 16 --tor=[::1]:9050
+```
+
+此时下载实际等价于 `curl --socks5-hostname <host:port>`：域名在 Tor 内部解析，
+重定向也会继续走同一个代理。启用 `--tor` 期间，`http_proxy`、`https_proxy`、
+`ALL_PROXY` 等环境变量会被忽略，避免请求意外泄漏到其他代理。代理地址必须是
+`host:port` 格式，格式不合法时会在下载前直接报错。
+
+请先启动 Tor。若代理无法连接，`patchsplit` 会报告所用地址并以错误退出，
+而不会回退为直连：
+
+```text
+错误：无法连接 Tor SOCKS5 代理 127.0.0.1:9050（curl 退出码 7）：...
+```
+
 ## 参数
 
 - `-o, --out <dir>`：指定 patch 文件的输出目录。
@@ -90,6 +119,7 @@ patchsplit --gitlab group/subgroup/project 1 --squash -o mr-1-patches
 - `-s, --squash`：将 PR/MR 的最终净变化输出为一个补丁。
 - `--gitlab`：改为从 gitlab.com 下载合并请求或单个 commit（项目路径支持子组）。
 - `--commit <hash>`：下载单个 commit 的 `.patch`，接受短哈希或完整哈希。
+- `--tor[=<host:port>]`：通过 SOCKS5 代理经 Tor 网络下载（默认 `127.0.0.1:9050`）。
 - `-h, --help`：显示帮助。
 - `-V, --version`：显示版本。
 
