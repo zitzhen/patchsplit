@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: patchsplit 0.1.0\n"
 "Report-Msgid-Bugs-To: https://github.com/zitzhen/patchsplit/issues\n"
-"POT-Creation-Date: 2026-10-04 22:26+0800\n"
+"POT-Creation-Date: 2026-10-07 14:32+0800\n"
 "PO-Revision-Date: 2026-08-10 19:11+0800\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -23,6 +23,10 @@ msgstr "patchsplit {version}"
 #: src/main.rs
 msgid "error: {message}"
 msgstr "错误：{message}"
+
+#: src/main.rs
+msgid "downloaded {url} through Tor via SOCKS5 proxy {proxy}"
+msgstr "已通过 Tor 的 SOCKS5 代理 {proxy} 下载 {url}"
 
 #: src/main.rs
 msgid "downloaded {url}"
@@ -81,6 +85,10 @@ msgid "host must be a bare hostname with an optional port, got {value}"
 msgstr "host 必须是纯主机名（可带端口），实际为 {value}"
 
 #: src/main.rs
+msgid "Tor proxy must use host:port form, got {value}"
+msgstr "Tor 代理必须使用 host:port 格式，实际为 {value}"
+
+#: src/main.rs
 msgid "--commit cannot be combined with --squash"
 msgstr "--commit 不能与 --squash 同时使用"
 
@@ -115,6 +123,22 @@ msgstr "下载失败：{message}"
 #: src/main.rs
 msgid "download failed"
 msgstr "下载失败"
+
+#: src/main.rs
+msgid ""
+"could not reach the Tor SOCKS5 proxy at {proxy} (curl exit {status}); is Tor "
+"running? Pass --tor=<host:port> to use another proxy"
+msgstr ""
+"无法连接 Tor SOCKS5 代理 {proxy}（curl 退出码 {status}）；Tor 是否正在运行？"
+"可传入 --tor=<host:port> 使用其他代理"
+
+#: src/main.rs
+msgid ""
+"could not reach the Tor SOCKS5 proxy at {proxy} (curl exit {status}): "
+"{message}; is Tor running? Pass --tor=<host:port> to use another proxy"
+msgstr ""
+"无法连接 Tor SOCKS5 代理 {proxy}（curl 退出码 {status}）：{message}；"
+"Tor 是否正在运行？可传入 --tor=<host:port> 使用其他代理"
 
 #: src/main.rs
 msgid "downloaded patch is not valid UTF-8: {source}"
@@ -170,6 +194,8 @@ msgid ""
 "      --host <host> Use a custom host, e.g. GitHub Enterprise or self-hosted "
 "GitLab\n"
 "      --commit <hash> Download one commit's .patch (short or full hash)\n"
+"      --tor[=<host:port>] Download through the Tor network over SOCKS5\n"
+"                          [default: 127.0.0.1:9050]\n"
 "  -h, --help        Show this help\n"
 "  -V, --version     Show version\n"
 "\n"
@@ -179,7 +205,8 @@ msgid ""
 "  patchsplit openai/codex 42 --squash\n"
 "  patchsplit zitzhen patchsplit -commit b430113\n"
 "  patchsplit --gitlab zitzhen/patchsplit 1\n"
-"  patchsplit --host git.corp.example.com owner/repo 42"
+"  patchsplit --host git.corp.example.com owner/repo 42\n"
+"  patchsplit zitzhen/patchsplit 1 --tor"
 msgstr ""
 "用法：\n"
 "  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n"
@@ -198,6 +225,8 @@ msgstr ""
 "      --gitlab      从 gitlab.com 下载（合并请求和 commit）\n"
 "      --host <host> 使用自定义主机名，例如 GitHub Enterprise 或自建 GitLab\n"
 "      --commit <hash> 下载单个提交的 .patch（短哈希或完整哈希）\n"
+"      --tor[=<host:port>] 通过 SOCKS5 经 Tor 网络下载\n"
+"                          [默认：127.0.0.1:9050]\n"
 "  -h, --help        显示帮助信息\n"
 "  -V, --version     显示版本\n"
 "\n"
@@ -207,4 +236,5 @@ msgstr ""
 "  patchsplit openai/codex 42 --squash\n"
 "  patchsplit zitzhen patchsplit -commit b430113\n"
 "  patchsplit --gitlab zitzhen/patchsplit 1\n"
-"  patchsplit --host git.corp.example.com owner/repo 42"
+"  patchsplit --host git.corp.example.com owner/repo 42\n"
+"  patchsplit zitzhen/patchsplit 1 --tor"
