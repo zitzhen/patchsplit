@@ -246,6 +246,22 @@ just like a GitHub PR, split into one mail-formatted patch per commit. With
 verbatim patch to `<hash>.patch`. The same `--out`, `--force`, and `--squash`
 rules apply, and `--commit` cannot be combined with `--squash`.
 
+### Download from a custom host
+
+By default `patchsplit` talks to `github.com`, or `gitlab.com` with `--gitlab`.
+Pass `--host <host>` to point it at another host that serves the same patch
+endpoints, such as a GitHub Enterprise Server or a self-hosted GitLab instance:
+
+```sh
+patchsplit --host git.corp.example.com owner/repo 42
+patchsplit --gitlab --host gitlab.internal group/project 7 --squash
+```
+
+The host is a bare hostname with an optional port (for example
+`gitlab.internal:8443`); requests always use `https`. Do not include a scheme
+or a path. Combining `--host` with `--gitlab` selects the GitLab URL layout on
+the custom host, while omitting it selects the GitHub layout.
+
 ### Download through Tor
 
 Pass `--tor` to route the download through the Tor network instead of
@@ -288,6 +304,7 @@ error: could not reach the Tor SOCKS5 proxy at 127.0.0.1:9050 (curl exit 7): ...
 | `-f, --force` | Overwrite existing patch files. |
 | `-s, --squash` | Write the request's net diff as one patch. |
 | `--gitlab` | Download a merge request or commit from gitlab.com. |
+| `--host <host>` | Use a custom host instead of the platform default. |
 | `--commit <hash>` | Download one commit's `.patch`; accepts a short or full hash. |
 | `--tor[=<host:port>]` | Download through the Tor network via a SOCKS5 proxy (default: `127.0.0.1:9050`). |
 | `-h, --help` | Show help. |
