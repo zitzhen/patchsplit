@@ -109,6 +109,24 @@ cat \"$PATCHSPLIT_TEST_PATCH\"\n",
     let full_patch = full_dir.join(format!("{FULL_HASH}.patch"));
     assert_eq!(fs::read(&full_patch).unwrap(), patch_body().as_bytes());
 
+    // The form reported in issue #18: the hash precedes the bare --commit flag.
+    let trailing_dir = root.0.join("trailing");
+    let result = run(&[
+        "zitzhen",
+        "patchsplit",
+        SHORT_HASH,
+        "--commit",
+        "--out",
+        trailing_dir.to_str().unwrap(),
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let trailing_patch = trailing_dir.join(format!("{SHORT_HASH}.patch"));
+    assert_eq!(fs::read(&trailing_patch).unwrap(), patch_body().as_bytes());
+
     let bad = run(&["zitzhen/patchsplit", "--commit", "xyz"]);
     assert_eq!(bad.status.code(), Some(2));
     assert!(

@@ -43,6 +43,26 @@ patchsplit \- download GitHub pull request or GitLab merge request patches, spli
 .RE
 .br
 .B patchsplit
+.RI < owner/repo > " <hash> \-\-commit"
+.RS
+[\c
+.B \-\-out
+.IR dir ]
+[\c
+.B \-\-force ]
+.RE
+.br
+.B patchsplit
+.RI < owner > " <repo> <hash> \-\-commit"
+.RS
+[\c
+.B \-\-out
+.IR dir ]
+[\c
+.B \-\-force ]
+.RE
+.br
+.B patchsplit
 .B \-\-gitlab
 .RI < namespace/project > " <mr-number>"
 .RS
@@ -58,6 +78,17 @@ patchsplit \- download GitHub pull request or GitLab merge request patches, spli
 .B patchsplit
 .B \-\-gitlab
 .RI < namespace/project > " \-\-commit <hash>"
+.RS
+[\c
+.B \-\-out
+.IR dir ]
+[\c
+.B \-\-force ]
+.RE
+.br
+.B patchsplit
+.B \-\-gitlab
+.RI < namespace/project > " <hash> \-\-commit"
 .RS
 [\c
 .B \-\-out
@@ -85,6 +116,12 @@ download the patch of a single commit identified by a short or full hash and
 write it verbatim to
 .BR <hash>.patch .
 The result is a mail-formatted patch for git am.
+Without a value,
+.B \-\-commit
+acts as a mode flag and takes the hash from the last argument instead, so
+.B patchsplit owner repo b430113 \-\-commit
+is equivalent to
+.BR "patchsplit owner repo \-\-commit b430113" .
 .B \-\-commit
 cannot be combined with
 .BR \-\-squash .
@@ -158,6 +195,9 @@ requests always use https. Do not include a scheme or a path.
 Download the .patch of a single commit instead of a pull request.
 .I hash
 may be a short or full commit hash.
+Without a value, the flag selects commit mode and the hash is read from the
+last argument, for example
+.BR "patchsplit owner repo b430113 \-\-commit" .
 The output file is named
 .BR <hash>.patch .
 Cannot be combined with
@@ -214,6 +254,11 @@ Download the patch for commit b430113 from
 .BR zitzhen/patchsplit
 and write it to
 .BR b430113.patch .
+.TP
+.B patchsplit zitzhen patchsplit b430113 \-\-commit
+Download the same patch with the hash before the flag; a bare
+.B \-\-commit
+takes the last argument as the commit.
 .TP
 .B patchsplit \-\-gitlab zitzhen/patchsplit 1
 Download and split merge request 1 from the GitLab project

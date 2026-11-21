@@ -119,9 +119,10 @@ impl Config {
         let mut gitlab = false;
         let mut tor_proxy = None;
         let mut commit = None;
+        let mut commit_mode = false;
         let mut host = None::<String>;
         let mut positionals = Vec::new();
-        let mut args = args.into_iter();
+        let mut args = args.into_iter().peekable();
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -152,10 +153,15 @@ impl Config {
                     host = Some(value["--host=".len()..].to_string());
                 }
                 "-commit" | "--commit" => {
-                    let value = args
-                        .next()
-                        .ok_or(AppError::MissingOptionValue("--commit".to_string()))?;
-                    commit = Some(value);
+                    // Both `--commit <hash>` and a bare `--commit` mode flag are
+                    // accepted; the latter takes the hash from the trailing
+                    // positional, e.g. `<owner> <repo> <hash> --commit`.
+                    // A hash never starts with '-', so anything option-like here
+                    // means the flag carries no value.
+                    match args.next_if(|value| !value.starts_with('-')) {
+                        Some(value) => commit = Some(value),
+                        None => commit_mode = true,
+                    }
                 }
                 value if value.starts_with("--commit=") => {
                     commit = Some(value["--commit=".len()..].to_string());
@@ -170,8 +176,17 @@ impl Config {
             }
         }
 
-        if commit.is_some() && squash {
+        if (commit.is_some() || commit_mode) && squash {
             return Err(AppError::CommitWithSquash);
+        }
+
+        // A bare `--commit` selects commit mode but leaves the hash to the last
+        // positional, so both `<hash> --commit` and `--commit <hash>` work.
+        if commit.is_none() && commit_mode {
+            if positionals.len() < 2 {
+                return Err(AppError::MissingOptionValue("--commit".to_string()));
+            }
+            commit = positionals.pop();
         }
 
         let platform = if gitlab {
@@ -802,7 +817,7 @@ fn repo_segment_label(kind: &str) -> String {
 }
 
 fn usage() -> String {
-    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]\n  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the net diff as one patch instead of splitting by commit\n      --gitlab      Download from gitlab.com (merge requests and commits)\n      --host <host> Use a custom host, e.g. GitHub Enterprise or self-hosted GitLab\n      --commit <hash> Download one commit's .patch (short or full hash)\n      --tor[=<host:port>] Download through the Tor network over SOCKS5\n                          [default: 127.0.0.1:9050]\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113\n  patchsplit --gitlab zitzhen/patchsplit 1\n  patchsplit --host git.corp.example.com owner/repo 42\n  patchsplit zitzhen/patchsplit 1 --tor")
+    tr("Usage:\n  patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]\n  patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]\n  patchsplit <owner/repo> <hash> --commit [--out <dir>] [--force]\n  patchsplit <owner> <repo> <hash> --commit [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]\n  patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]\n  patchsplit --gitlab <namespace/project> <hash> --commit [--out <dir>] [--force]\n\nOptions:\n  -o, --out <dir>   Output directory for patch files [default: patches]\n  -f, --force       Overwrite existing patch files\n  -s, --squash      Write the net diff as one patch instead of splitting by commit\n      --gitlab      Download from gitlab.com (merge requests and commits)\n      --host <host> Use a custom host, e.g. GitHub Enterprise or self-hosted GitLab\n      --commit <hash> Download one commit's .patch (short or full hash);\n                      the hash may also be given before the flag\n      --tor[=<host:port>] Download through the Tor network over SOCKS5\n                          [default: 127.0.0.1:9050]\n  -h, --help        Show this help\n  -V, --version     Show version\n\nExamples:\n  patchsplit rust-lang/rust 12345\n  patchsplit openai codex 42 -o pr-42-patches\n  patchsplit openai/codex 42 --squash\n  patchsplit zitzhen patchsplit -commit b430113\n  patchsplit --gitlab zitzhen/patchsplit 1\n  patchsplit --host git.corp.example.com owner/repo 42\n  patchsplit zitzhen/patchsplit 1 --tor")
 }
     #[cfg(test)]
 mod tests {
@@ -856,6 +871,13 @@ mod tests {
             ),
             (vec!["zitzhen/patchsplit", &full_double_dash], FULL_HASH),
             (vec!["zitzhen/patchsplit", &full_single_dash], FULL_HASH),
+            // A bare `--commit` mode flag takes the hash from the positional.
+            (
+                vec!["zitzhen", "patchsplit", "b430113", "--commit"],
+                "b430113",
+            ),
+            (vec!["zitzhen/patchsplit", "b430113", "-commit"], "b430113"),
+            (vec!["zitzhen/patchsplit", FULL_HASH, "--commit"], FULL_HASH),
         ];
         let patch = format!(
             "From {FULL_HASH} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] One\n\ndiff --git a/a b/a\n"
@@ -892,6 +914,17 @@ mod tests {
         }
 
         assert!(parse_err(&["owner/repo", "--commit"]).contains("MissingOptionValue"));
+        // The reported form `<owner> <repo> <hash> --commit` selects the hash from
+        // the positional, so a non-hex trailing argument is rejected as a hash.
+        assert!(parse_err(&["owner", "repo", "42", "--commit"]).contains("InvalidCommitHash"));
+        // A following option must not be swallowed as the hash value.
+        assert!(parse_err(&["owner/repo", "--commit", "--force"]).contains("MissingOptionValue"));
+        assert!(
+            parse_err(&["owner/repo", "--commit", "-o", "out"]).contains("MissingOptionValue")
+        );
+        assert!(
+            parse_err(&["owner", "repo", "--commit", "--squash"]).contains("CommitWithSquash")
+        );
         assert!(
             parse_err(&["owner", "repo", "42", "--commit", "b430113"])
                 .contains("InvalidCommitArguments")
@@ -975,6 +1008,18 @@ mod tests {
                 ],
                 "de9ea1a",
             ),
+            // Bare `--commit` after the hash also works for GitLab projects.
+            (vec!["--gitlab", project, "fafbad6", "--commit"], "fafbad6"),
+            (
+                vec![
+                    "--gitlab",
+                    "group/subgroup",
+                    "project",
+                    "de9ea1a",
+                    "--commit",
+                ],
+                "de9ea1a",
+            ),
         ];
         let patch = format!(
             "From {FULL_HASH} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] One\n\ndiff --git a/a b/a\n"
@@ -1017,6 +1062,8 @@ mod tests {
         );
         assert!(parse_err(&["--gitlab", "group/project", "--commit", "xyz"])
             .contains("InvalidCommitHash"));
+        assert!(parse_err(&["--gitlab", "group/project", "--commit"])
+            .contains("MissingOptionValue"));
         assert!(
             parse_err(&[
                 "--gitlab",

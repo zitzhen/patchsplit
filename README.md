@@ -12,7 +12,8 @@ reviewing, sharing, and applying changes locally.
 - **Per-commit patches:** Keep the original patch content, commit messages, and
   authorship, with numbered filenames in commit order.
 - **Single commit:** Use `--commit <hash>` to download one commit's `.patch`
-  with either a short or full hash.
+  with either a short or full hash; the hash may also come first, as in
+  `<hash> --commit`.
 - **GitLab support:** Pass `--gitlab` to fetch merge requests and commits from
   gitlab.com, including projects nested under subgroups.
 - **Tor support:** Pass `--tor` to download through the Tor network over a local
@@ -146,8 +147,11 @@ patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]
 patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]
 patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]
 patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]
+patchsplit <owner/repo> <hash> --commit [--out <dir>] [--force]
+patchsplit <owner> <repo> <hash> --commit [--out <dir>] [--force]
 patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]
 patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]
+patchsplit --gitlab <namespace/project> <hash> --commit [--out <dir>] [--force]
 ```
 
 ### Split a pull request by commit
@@ -213,11 +217,13 @@ the data GitHub includes in its diff; binary file contents may not be included.
 ### Download a single commit
 
 Pass `--commit <hash>` (or `-commit <hash>`) with a short or full commit hash
-instead of a pull request number:
+instead of a pull request number. If you prefer the hash first, a bare
+`--commit` after it works too:
 
 ```sh
 patchsplit zitzhen patchsplit -commit b430113
 patchsplit zitzhen/patchsplit --commit b4301133226e5c3a464cff9649de0b321c0b0a2e
+patchsplit zitzhen patchsplit b430113 --commit
 ```
 
 This fetches `https://github.com/<owner>/<repo>/commit/<hash>.patch` and writes
