@@ -13,8 +13,11 @@ patchsplit <owner/repo> <pr-number> [--out <dir>] [--force] [--squash]
 patchsplit <owner> <repo> <pr-number> [--out <dir>] [--force] [--squash]
 patchsplit <owner/repo> --commit <hash> [--out <dir>] [--force]
 patchsplit <owner> <repo> --commit <hash> [--out <dir>] [--force]
+patchsplit <owner/repo> <hash> --commit [--out <dir>] [--force]
+patchsplit <owner> <repo> <hash> --commit [--out <dir>] [--force]
 patchsplit --gitlab <namespace/project> <mr-number> [--out <dir>] [--force] [--squash]
 patchsplit --gitlab <namespace/project> --commit <hash> [--out <dir>] [--force]
+patchsplit --gitlab <namespace/project> <hash> --commit [--out <dir>] [--force]
 ```
 
 示例：
@@ -51,11 +54,12 @@ git apply pr-42-patches/pr-42.patch
 ### 下载单个 commit
 
 不传 PR 编号，改用 `--commit <hash>`（也可写作 `-commit <hash>`）传入短哈希或
-完整哈希：
+完整哈希；如果习惯哈希在前，也可以把 `--commit` 写在后面：
 
 ```sh
 patchsplit zitzhen patchsplit -commit b430113
 patchsplit zitzhen/patchsplit --commit b4301133226e5c3a464cff9649de0b321c0b0a2e
+patchsplit zitzhen patchsplit b430113 --commit
 ```
 
 对应下载 `https://github.com/<owner>/<repo>/commit/<hash>.patch`，并把该 commit
